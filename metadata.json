@@ -1,0 +1,6 @@
+{
+  "name": "DisruptionIQ - Delivery Delays to Recovery Plans",
+  "description": "Deterministic supply chain disruption resolution, risk scoring, stock reallocation, and simulated recovery workflows with strict multi-role approval gates.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
