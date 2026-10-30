@@ -18,9 +18,9 @@ export interface RuleValidationResult {
 
 /**
  * Enforces business rules for Proposal Approval / Rejection:
- * 1. Must be a SUPPLY_CHAIN_MANAGER
- * 2. Proposer CANNOT approve their own plan (Four-Eyes Principle / Maker-Checker)
- * 3. Proposal must be in SUBMITTED status
+ * 1. Must be authenticated with role 'SUPPLY_CHAIN_MANAGER'
+ * 2. Proposal must be in 'SUBMITTED' status (never decide draft, rejected, or executed proposals)
+ * 3. Separation of Duties (Four-Eyes Principle): Proposer or any material modifier CANNOT approve their own plan.
  */
 export function validateProposalApproval(actor: User, proposal: RecoveryProposal): RuleValidationResult {
   // Rule 1: Authenticated role check
@@ -28,25 +28,35 @@ export function validateProposalApproval(actor: User, proposal: RecoveryProposal
     return {
       allowed: false,
       code: 'UNAUTHORIZED_ROLE',
-      message: `Permission Denied: Only users with the 'SUPPLY_CHAIN_MANAGER' role can approve or reject recovery proposals. Current user (${actor.name}) has role '${actor.role}'.`
+      message: `Permission Denied: Only authenticated users with the 'SUPPLY_CHAIN_MANAGER' role can approve or reject recovery proposals. Current user '${actor.name}' has role '${actor.role}'.`
     };
   }
 
-  // Rule 2: Separation of duties (Four-Eyes Principle)
+  // Rule 2: Valid status check
+  if (proposal.status !== 'SUBMITTED') {
+    return {
+      allowed: false,
+      code: 'INVALID_STATUS_FOR_APPROVAL',
+      message: `State Transition Error: Only proposals in 'SUBMITTED' status can be approved or rejected. Current status is '${proposal.status}'.`
+    };
+  }
+
+  // Rule 3: Separation of duties (Four-Eyes Principle)
+  // Proposer check
   if (proposal.createdById === actor.id) {
     return {
       allowed: false,
       code: 'SEPARATION_OF_DUTIES_VIOLATION',
-      message: `Governance Violation (Maker-Checker Policy): The proposal creator (${proposal.createdByName}) cannot approve their own plan. A distinct Supply Chain Manager must perform the authorization.`
+      message: `Governance Violation (Maker-Checker Policy): The proposal creator (${proposal.createdByName}) cannot approve their own plan. An independent Supply Chain Manager must perform authorization.`
     };
   }
 
-  // Rule 3: Valid state check
-  if (proposal.status !== 'SUBMITTED' && proposal.status !== 'DRAFT') {
+  // Material modifier check
+  if (proposal.lastModifiedById === actor.id || (proposal.modifierUserIds && proposal.modifierUserIds.includes(actor.id))) {
     return {
       allowed: false,
-      code: 'INVALID_STATUS_TRANSITION',
-      message: `State Transition Error: Cannot decide proposal in '${proposal.status}' status. Only SUBMITTED or DRAFT proposals can be decided.`
+      code: 'MODIFIER_CANNOT_APPROVE_VIOLATION',
+      message: `Governance Violation (Maker-Checker Policy): User '${actor.name}' materially modified this recovery proposal (v${proposal.version}) and cannot approve their own modifications. An independent Supply Chain Manager must review.`
     };
   }
 
@@ -54,25 +64,163 @@ export function validateProposalApproval(actor: User, proposal: RecoveryProposal
 }
 
 /**
+ * Applies a material modification to a recovery proposal.
+ * Critical Business Rule: Material modifications MUST increment the proposal version
+ * and invalidate any existing approval, reverting the status to SUBMITTED for re-review.
+ */
+export function applyProposalModification(
+  db: Database,
+  proposal: RecoveryProposal,
+  actor: User,
+  actionId: string,
+  modifications: {
+    transportMode?: any;
+    carrierName?: string;
+    notes?: string;
+    quantityToRecover?: number;
+  }
+): RecoveryProposal {
+  if (proposal.status === 'SIMULATED_EXECUTED') {
+    throw new Error(`Cannot modify proposal '${proposal.id}': Proposal has already been executed in simulation mode.`);
+  }
+
+  const action = proposal.actions.find(a => a.id === actionId);
+  if (!action) {
+    throw new Error(`Action leg '${actionId}' not found in proposal '${proposal.id}'.`);
+  }
+
+  const priorStatus = proposal.status;
+  const priorVersion = proposal.version;
+
+  // Apply changes
+  if (modifications.transportMode) action.transportMode = modifications.transportMode;
+  if (modifications.carrierName) action.carrierName = modifications.carrierName;
+  if (modifications.notes) action.notes = modifications.notes;
+  if (modifications.quantityToRecover !== undefined && modifications.quantityToRecover > 0) {
+    action.quantityToRecover = modifications.quantityToRecover;
+  }
+
+  // Revalidate stock if company warehouse is involved
+  if (action.sourceLocationType === 'COMPANY_WAREHOUSE' && action.sourceWarehouseId) {
+    const inv = db.getInventoryItem(action.sourceWarehouseId, action.sku);
+    if (inv) {
+      const available = inv.quantityOnHand - inv.reservedQuantity;
+      action.stockAvailableAtSource = available;
+      action.stockOnHandAtSource = inv.quantityOnHand;
+      action.stockValidationStatus = available >= action.quantityToRecover ? 'VERIFIED_AVAILABLE' : 'INSUFFICIENT_STOCK';
+    }
+  }
+
+  // Increment version
+  proposal.version = (proposal.version || 1) + 1;
+  proposal.lastModifiedById = actor.id;
+  proposal.lastModifiedByName = actor.name;
+  proposal.lastModifiedByRole = actor.role;
+  proposal.lastModifiedAt = new Date().toISOString();
+  proposal.updatedAt = new Date().toISOString();
+
+  if (!proposal.modifierUserIds) proposal.modifierUserIds = [];
+  if (!proposal.modifierUserIds.includes(actor.id)) {
+    proposal.modifierUserIds.push(actor.id);
+  }
+
+  if (!proposal.modificationHistory) proposal.modificationHistory = [];
+  proposal.modificationHistory.push({
+    version: proposal.version,
+    modifiedByUserId: actor.id,
+    modifiedByUserName: actor.name,
+    modifiedByUserRole: actor.role,
+    timestamp: new Date().toISOString(),
+    description: `Action leg ${action.orderNumber} modified by ${actor.name} (${actor.role}). Transport: ${action.transportMode}, Carrier: ${action.carrierName}.`
+  });
+
+  // If proposal was previously APPROVED, material modification INVALIDATES the approval!
+  let approvalInvalidated = false;
+  if (priorStatus === 'APPROVED') {
+    proposal.status = 'SUBMITTED';
+    proposal.approvalDecision = undefined;
+    approvalInvalidated = true;
+
+    recordAuditLog(
+      db,
+      'PROPOSAL_APPROVAL_INVALIDATED',
+      actor,
+      'PROPOSAL',
+      proposal.id,
+      `[GOVERNANCE] Prior approval on proposal '${proposal.title}' was invalidated due to material modifications made by ${actor.name} (${actor.role}). Status reverted to SUBMITTED for re-approval (new v${proposal.version}).`,
+      {
+        previousVersion: priorVersion,
+        newVersion: proposal.version,
+        modifiedBy: actor.name,
+        actionId
+      },
+      true
+    );
+  }
+
+  db.updateProposal(proposal);
+
+  recordAuditLog(
+    db,
+    'PROPOSAL_MODIFIED',
+    actor,
+    'PROPOSAL',
+    proposal.id,
+    `Proposal '${proposal.title}' modified to v${proposal.version} by ${actor.name} (${actor.role}). Action leg ${action.orderNumber} updated.`,
+    {
+      actionId,
+      version: proposal.version,
+      approvalInvalidated,
+      modifications
+    },
+    true
+  );
+
+  return proposal;
+}
+
+/**
  * Enforces business rules for Execution in Simulation Mode:
  * 1. Proposal MUST be in APPROVED status (never execute draft, submitted, or rejected plan)
- * 2. Real stock must exist in the database for all reallocated legs
+ * 2. Cannot execute an already executed plan (prevent duplicate execution)
+ * 3. The current proposal version MUST match the exact approved version
+ * 4. Immediate stock re-validation: real available stock must exist in the database right now,
+ *    and quantityOnHand - required must be >= 0 (prevent negative inventory under all conditions).
  */
 export function validateProposalExecution(actor: User, proposal: RecoveryProposal, db: Database): RuleValidationResult {
-  // Rule 1: Strict approval prerequisite
+  // Rule 1: Prevent duplicate execution
+  if (proposal.status === 'SIMULATED_EXECUTED' || proposal.executionResult) {
+    return {
+      allowed: false,
+      code: 'DUPLICATE_EXECUTION_BLOCKED',
+      message: `Execution Blocked: Proposal '${proposal.title}' has already been executed on ${proposal.executionResult?.executedAt || 'earlier run'}. Duplicate execution is prohibited.`
+    };
+  }
+
+  // Rule 2: Strict approval prerequisite
   if (proposal.status !== 'APPROVED') {
     return {
       allowed: false,
       code: 'UNAPPROVED_PLAN_BLOCKED',
-      message: `Execution Blocked: Policy prohibits executing unapproved or rejected proposals. Proposal '${proposal.title}' is currently in '${proposal.status}' status (must be 'APPROVED').`
+      message: `Execution Blocked: Policy strictly prohibits executing unapproved or rejected proposals. Proposal '${proposal.title}' is currently in '${proposal.status}' status (must be 'APPROVED').`
     };
   }
 
-  // Rule 2: Stock Availability Pre-execution Verification
+  // Rule 3: Version consistency check
+  if (!proposal.approvalDecision || proposal.approvalDecision.approvedVersion !== proposal.version) {
+    return {
+      allowed: false,
+      code: 'STALE_APPROVAL_VERSION_MISMATCH',
+      message: `Execution Blocked: Proposal approval is stale. Approved version was v${proposal.approvalDecision?.approvedVersion ?? 'unknown'}, but current proposal version is v${proposal.version}. Material modifications require re-approval.`
+    };
+  }
+
+  // Rule 4: Immediate Stock Availability Re-validation (Prevent Negative Inventory)
   for (const action of proposal.actions) {
     if (action.strategy === 'WAIT_ORIGINAL_REPAIR') continue;
 
-    if (action.sourceWarehouseId) {
+    // Check company warehouse inventory
+    if (action.sourceLocationType === 'COMPANY_WAREHOUSE' && action.sourceWarehouseId) {
       const inv = db.getInventoryItem(action.sourceWarehouseId, action.sku);
       if (!inv) {
         return {
@@ -81,12 +229,22 @@ export function validateProposalExecution(actor: User, proposal: RecoveryProposa
           message: `Execution Aborted: Stock record not found for SKU ${action.sku} at warehouse ${action.sourceWarehouseName || action.sourceWarehouseId}.`
         };
       }
+
       const available = inv.quantityOnHand - inv.reservedQuantity;
       if (available < action.quantityToRecover) {
         return {
           allowed: false,
           code: 'INSUFFICIENT_STOCK_VERIFICATION',
-          message: `Execution Aborted: Insufficient stock for SKU ${action.sku} at ${action.sourceWarehouseName}. Required: ${action.quantityToRecover}, Available: ${available} (On Hand: ${inv.quantityOnHand}, Reserved: ${inv.reservedQuantity}).`
+          message: `Execution Aborted: Insufficient unreserved stock for SKU ${action.sku} at ${action.sourceWarehouseName || action.sourceWarehouseId}. Required: ${action.quantityToRecover}, Available: ${available} (On Hand: ${inv.quantityOnHand}, Reserved: ${inv.reservedQuantity}).`
+        };
+      }
+
+      // Explicit negative inventory check
+      if (inv.quantityOnHand - action.quantityToRecover < 0) {
+        return {
+          allowed: false,
+          code: 'NEGATIVE_INVENTORY_PREVENTED',
+          message: `Execution Aborted: Negative inventory violation. Deduction of ${action.quantityToRecover} units would result in negative stock for SKU ${action.sku} (Current on-hand: ${inv.quantityOnHand}).`
         };
       }
     }
@@ -97,24 +255,23 @@ export function validateProposalExecution(actor: User, proposal: RecoveryProposa
 
 /**
  * Execute approved recovery proposal in SIMULATION MODE:
- * Updates inventories, creates simulated rapid shipments, updates affected orders, and records complete audit trail.
+ * Atomically updates inventories, dispatches simulated recovery shipments, updates affected orders, and records comprehensive audit trail.
  */
 export function executeProposalSimulation(
   db: Database,
   proposal: RecoveryProposal,
   actor: User
 ): RecoveryProposal {
-  // Verify execution permission first
+  // Pre-execution validation
   const validation = validateProposalExecution(actor, proposal, db);
   if (!validation.allowed) {
-    // Audit policy violation attempt
     recordAuditLog(
       db,
-      'EXECUTION_BLOCKED_NOT_APPROVED',
+      'EXECUTION_BLOCKED_POLICY_VIOLATION',
       actor,
       'PROPOSAL',
       proposal.id,
-      `Blocked execution attempt on proposal '${proposal.title}': ${validation.message}`,
+      `Blocked simulated execution attempt on proposal '${proposal.title}': ${validation.message}`,
       { error: validation },
       true
     );
@@ -139,7 +296,7 @@ export function executeProposalSimulation(
 
   let ordersUpdatedCount = 0;
 
-  // Process all action items consistently
+  // Process each recovery action leg
   for (const action of proposal.actions) {
     const order = db.getOrderById(action.orderId);
     if (!order) continue;
@@ -152,8 +309,8 @@ export function executeProposalSimulation(
       continue;
     }
 
-    // Deduct stock from source warehouse
-    if (action.sourceWarehouseId) {
+    // Deduct stock from company warehouse if applicable
+    if (action.sourceLocationType === 'COMPANY_WAREHOUSE' && action.sourceWarehouseId) {
       const inv = db.getInventoryItem(action.sourceWarehouseId, action.sku);
       if (inv) {
         inv.quantityOnHand -= action.quantityToRecover;
@@ -169,14 +326,13 @@ export function executeProposalSimulation(
           remainingAvailable: inv.availableQuantity
         });
 
-        // Audit inventory deduction
         recordAuditLog(
           db,
           'INVENTORY_REALLOCATED',
           actor,
           'INVENTORY',
           inv.id,
-          `[SIMULATED EXECUTION] Deducted ${action.quantityToRecover} units of ${inv.productName} (${inv.sku}) from ${sourceWh?.name}. New available: ${inv.availableQuantity} units.`,
+          `[SIMULATED EXECUTION] Deducted ${action.quantityToRecover} units of ${inv.productName} (${inv.sku}) from ${sourceWh?.name || inv.warehouseId}. New available: ${inv.availableQuantity} units.`,
           {
             warehouseId: inv.warehouseId,
             sku: inv.sku,
@@ -195,15 +351,21 @@ export function executeProposalSimulation(
     const newShipment: Shipment = {
       id: recShipmentId,
       trackingNumber: `EXP-${action.transportMode.slice(0, 3)}-${recShipmentId.toUpperCase()}`,
-      originWarehouseId: action.sourceWarehouseId || 'wh-blr-03',
+      originWarehouseId: action.sourceWarehouseId || 'wh-del-01',
       destinationWarehouseId: action.targetWarehouseId,
       carrier: action.carrierName,
-      vehicleType: action.transportMode === 'AIR_CARGO' ? 'Boeing 737-800F Dedicated Freighter' : 'Force Urbania Express Van',
-      vehicleRegistration: action.transportMode === 'AIR_CARGO' ? 'VT-BDG' : 'KA-05-EX-4491',
-      driverName: action.transportMode === 'AIR_CARGO' ? 'Capt. Sandeep Menon (Flight Dispatch)' : 'Kishore Kumar (Express Driver)',
-      driverPhone: '+91 97412 55901',
-      routeCorridor: action.transportMode === 'AIR_CARGO' ? 'DEL-MAA Direct Air Sector' : 'NH-44 / NH-48 Bengaluru to Chennai Rapid Link',
-      totalDistanceKm: action.transportMode === 'AIR_CARGO' ? 1750 : 340,
+      vehicleType: action.transportMode === 'AIR_CARGO' 
+        ? 'Boeing 737-800F Dedicated Air Freighter' 
+        : action.transportMode === 'RELIEF_HAULER_HIGHWAY'
+          ? 'Apex Emergency Relief Prime-Mover (Tata Signa 5530.S)'
+          : 'Dedicated Express Sprinter Van',
+      vehicleRegistration: action.transportMode === 'AIR_CARGO' ? 'VT-BDG' : 'MH-31-TR-8810',
+      driverName: action.transportMode === 'AIR_CARGO' ? 'Capt. Sandeep Menon (Flight Dispatch)' : 'Harishankar Tiwari (Relief Driver)',
+      driverPhone: '+91 94221 40911',
+      routeCorridor: action.transportMode === 'AIR_CARGO' 
+        ? 'DEL-MAA Air Cargo Direct Sector' 
+        : 'NH-44 Nagpur Highway Transit Waypoint to Chennai Dock',
+      totalDistanceKm: action.transportMode === 'AIR_CARGO' ? 1750 : 1438,
       distanceTraveledKm: 0,
       status: 'IN_TRANSIT',
       departureTime: new Date().toISOString(),
@@ -213,15 +375,15 @@ export function executeProposalSimulation(
       milestones: [
         {
           id: `ms-${recShipmentId}-01`,
-          locationName: `${action.sourceWarehouseName || 'Source DC'} - Expedited Dispatch Dock`,
-          coordinates: { lat: 12.9716, lng: 77.5946 },
+          locationName: action.sourceLocationDetails,
+          coordinates: { lat: 20.5600, lng: 78.8400 },
           status: 'COMPLETED',
           plannedTimestamp: new Date().toISOString(),
           actualTimestamp: new Date().toISOString()
         },
         {
           id: `ms-${recShipmentId}-02`,
-          locationName: 'Chennai Hub (MAA-DC-02) Inbound Priority Gate',
+          locationName: 'Chennai Fulfillment Hub (MAA-DC-02) Priority Receiving Dock',
           coordinates: { lat: 13.0827, lng: 80.2707 },
           status: 'PENDING',
           plannedTimestamp: action.newProjectedEta
@@ -248,13 +410,13 @@ export function executeProposalSimulation(
       order.riskAssessment.isSlaBreached = false;
       order.riskAssessment.riskLevel = 'LOW';
       order.riskAssessment.score = 15;
-      order.riskAssessment.explanation = `RECOVERED VIA ${action.strategy} (${action.transportMode}). New estimated delivery ${new Date(action.newProjectedEta).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST arrives well ahead of committed SLA.`;
+      order.riskAssessment.explanation = `RECOVERED VIA ${action.strategy} (${action.transportMode}). Projected arrival ${new Date(action.newProjectedEta).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST arrives ahead of committed SLA deadline.`;
     }
     db.updateOrder(order);
     ordersUpdatedCount++;
   }
 
-  // Update original shipment state to reflect offloaded orders and ongoing repair
+  // Update original shipment state
   const incident = db.getIncidentById(proposal.incidentId);
   if (incident) {
     incident.status = 'RESOLVING';
@@ -283,16 +445,16 @@ export function executeProposalSimulation(
 
   db.updateProposal(proposal);
 
-  // Record audit log for execution completion
   const execAudit = recordAuditLog(
     db,
     'SIMULATION_EXECUTION_COMPLETED',
     actor,
     'PROPOSAL',
     proposal.id,
-    `[SIMULATION MODE] Executed recovery plan '${proposal.title}'. Dispatched ${generatedShipments.length} expedited shipments, deducted inventory for ${inventoryAdjustments.length} SKUs, and brought ${ordersUpdatedCount} orders back into SLA compliance.`,
+    `[SIMULATED EXECUTION] Executed recovery plan '${proposal.title}' (v${proposal.version}). Dispatched ${generatedShipments.length} simulated shipments, adjusted inventory for ${inventoryAdjustments.length} company SKUs, and restored ${ordersUpdatedCount} orders to SLA compliance.`,
     {
       proposalId: proposal.id,
+      version: proposal.version,
       generatedShipments,
       inventoryAdjustments,
       ordersUpdatedCount,

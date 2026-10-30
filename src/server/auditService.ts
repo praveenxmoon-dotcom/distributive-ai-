@@ -5,7 +5,7 @@ export function recordAuditLog(
   db: Database,
   eventType: AuditEventType,
   actor: User,
-  entityType: 'INCIDENT' | 'PROPOSAL' | 'SHIPMENT' | 'ORDER' | 'INVENTORY' | 'SYSTEM',
+  entityType: 'INCIDENT' | 'PROPOSAL' | 'SHIPMENT' | 'ORDER' | 'INVENTORY' | 'SYSTEM' | 'AUTH',
   entityId: string,
   summary: string,
   metadata: Record<string, any> = {},

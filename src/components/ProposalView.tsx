@@ -12,13 +12,16 @@ import {
   Edit3, 
   FileCheck,
   ShieldAlert,
-  Sparkles
+  Sparkles,
+  RefreshCw,
+  ExternalLink,
+  History
 } from 'lucide-react';
 
 interface ProposalViewProps {
   proposal: RecoveryProposal;
   currentUser: User;
-  onModifyAction?: (actionId: string, transportMode: any, carrierName: string, notes: string) => void;
+  onModifyAction?: (actionId: string, transportMode: any, carrierName: string, notes: string, quantityToRecover?: number) => void;
   onOpenApprovalModal: (proposal: RecoveryProposal) => void;
   onExecuteSimulation: (proposal: RecoveryProposal) => void;
   isExecuting?: boolean;
@@ -35,34 +38,41 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
   const [editingActionId, setEditingActionId] = useState<string | null>(null);
   const [editCarrier, setEditCarrier] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editQuantity, setEditQuantity] = useState<number>(0);
+  const [showHistory, setShowHistory] = useState(false);
 
   const isProposer = proposal.createdById === currentUser.id;
+  const isModifier = proposal.lastModifiedById === currentUser.id || (proposal.modifierUserIds && proposal.modifierUserIds.includes(currentUser.id));
   const isManager = currentUser.role === 'SUPPLY_CHAIN_MANAGER';
-  const canDecide = isManager && !isProposer && proposal.status === 'SUBMITTED';
+  const canDecide = isManager && !isProposer && !isModifier && proposal.status === 'SUBMITTED';
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'SUBMITTED':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            AWAITING SCM APPROVAL (Maker-Checker Gate Active)
+          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            AWAITING SCM APPROVAL (v{proposal.version})
           </span>
         );
       case 'APPROVED':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-            APPROVED (Ready for Simulated Execution)
+          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            APPROVED (v{proposal.approvalDecision?.approvedVersion ?? proposal.version})
           </span>
         );
       case 'REJECTED':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40">
+          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" />
             REJECTED BY SCM
           </span>
         );
       case 'SIMULATED_EXECUTED':
         return (
-          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+          <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5" />
             EXECUTED [SIMULATION MODE]
           </span>
         );
@@ -73,12 +83,14 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
 
   const getStrategyIcon = (strategy: string) => {
     switch (strategy) {
-      case 'ALTERNATE_HUB_REALLOCATION':
-        return <Truck className="w-4 h-4 text-emerald-400" />;
-      case 'AIR_FREIGHT_EXPEDITE':
+      case 'AIR_FREIGHT_EXPEDITE_DELHI':
         return <Plane className="w-4 h-4 text-sky-400" />;
-      case 'SPLIT_ORDER_HYBRID':
-        return <Sparkles className="w-4 h-4 text-purple-400" />;
+      case 'TRANSIT_CROSS_DOCK_NAGPUR':
+        return <RefreshCw className="w-4 h-4 text-amber-400" />;
+      case 'EXTERNAL_SUPPLIER_EMERGENCY':
+        return <ExternalLink className="w-4 h-4 text-purple-400" />;
+      case 'SPLIT_AIR_AND_TRANSIT':
+        return <Sparkles className="w-4 h-4 text-indigo-400" />;
       default:
         return <Clock className="w-4 h-4 text-slate-400" />;
     }
@@ -88,11 +100,12 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
     setEditingActionId(action.id);
     setEditCarrier(action.carrierName);
     setEditNotes(action.notes);
+    setEditQuantity(action.quantityToRecover);
   };
 
   const handleSaveEdit = (action: RecoveryActionItem) => {
     if (onModifyAction) {
-      onModifyAction(action.id, action.transportMode, editCarrier, editNotes);
+      onModifyAction(action.id, action.transportMode, editCarrier, editNotes, editQuantity);
     }
     setEditingActionId(null);
   };
@@ -102,8 +115,11 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-slate-800">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <h3 className="text-lg font-bold text-white">{proposal.title}</h3>
+            <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono font-bold">
+              v{proposal.version}
+            </span>
             {getStatusBadge(proposal.status)}
           </div>
           <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
@@ -111,8 +127,20 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
           </p>
           <div className="flex flex-wrap items-center gap-3 mt-2 text-xs text-slate-400">
             <span>Author / Proposer: <strong className="text-slate-200">{proposal.createdByName}</strong> ({proposal.createdByRole})</span>
+            {proposal.lastModifiedByName && proposal.lastModifiedById !== proposal.createdById && (
+              <>
+                <span>•</span>
+                <span>Last Modified By: <strong className="text-amber-300">{proposal.lastModifiedByName}</strong> ({proposal.lastModifiedByRole})</span>
+              </>
+            )}
             <span>•</span>
-            <span>Created: {new Date(proposal.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium underline"
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>{showHistory ? 'Hide Version History' : `Version History (${proposal.modificationHistory?.length || 1})`}</span>
+            </button>
           </div>
         </div>
 
@@ -141,11 +169,33 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
         </div>
       </div>
 
-      {/* Action Items Table / List */}
+      {/* Version History Drawer */}
+      {showHistory && proposal.modificationHistory && (
+        <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs space-y-2">
+          <div className="font-semibold text-slate-300 text-xs flex items-center gap-1.5">
+            <History className="w-4 h-4 text-indigo-400" />
+            <span>Audit-Linked Version Provenance</span>
+          </div>
+          <div className="space-y-1.5 font-mono text-[11px]">
+            {proposal.modificationHistory.map((h, i) => (
+              <div key={i} className="flex items-start justify-between border-b border-slate-850 pb-1 text-slate-300">
+                <div>
+                  <strong className="text-indigo-300">v{h.version}:</strong> {h.description}
+                </div>
+                <div className="text-slate-500 whitespace-nowrap ml-2">
+                  {new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Action Items List */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs font-semibold text-slate-300 uppercase tracking-wider">
-          <span>Feasible Recovery Actions by Order ({proposal.actions.length} legs)</span>
-          <span className="text-slate-400 font-normal lowercase">Actual stock validated against live inventory records</span>
+          <span>Feasible Recovery Actions ({proposal.actions.length} legs)</span>
+          <span className="text-slate-400 font-normal lowercase">Validated strictly with 2-warehouse, transit cross-dock, or external supplier data</span>
         </div>
 
         <div className="space-y-3">
@@ -165,6 +215,9 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                       <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-medium">
                         {action.strategy.replace(/_/g, ' ')}
                       </span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                        {action.sourceLocationType}
+                      </span>
                     </div>
                     <div className="text-xs text-slate-400">
                       Transport: <span className="text-slate-200">{action.transportMode.replace(/_/g, ' ')}</span> via <span className="text-slate-200 font-medium">{action.carrierName}</span>
@@ -177,7 +230,9 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                   {action.stockValidationStatus === 'VERIFIED_AVAILABLE' && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                       <CheckCircle2 className="w-3.5 h-3.5" />
-                      Stock Verified ({action.stockAvailableAtSource} units available at source)
+                      {action.sourceLocationType === 'COMPANY_WAREHOUSE' 
+                        ? `Delhi Stock Verified (${action.stockAvailableAtSource ?? 'Available'} units)`
+                        : 'Verified Partner Capacity'}
                     </span>
                   )}
                   {action.stockValidationStatus === 'INSUFFICIENT_STOCK' && (
@@ -192,11 +247,11 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                     </span>
                   )}
 
-                  {proposal.status === 'SUBMITTED' && (
+                  {proposal.status !== 'SIMULATED_EXECUTED' && (
                     <button
                       onClick={() => handleStartEdit(action)}
                       className="p-1 text-slate-400 hover:text-slate-200 rounded hover:bg-slate-800 transition-colors"
-                      title="Modify action leg"
+                      title="Modify action leg (Material modification triggers re-approval requirement)"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
                     </button>
@@ -204,18 +259,16 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                 </div>
               </div>
 
-              {/* Action Body: Routing & Cost breakdown */}
+              {/* Action Body */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 text-xs">
-                {/* Leg Path */}
+                {/* Leg Details */}
                 <div className="space-y-1">
                   <div className="text-slate-400 text-[11px] flex items-center gap-1">
                     <WarehouseIcon className="w-3 h-3 text-slate-400" />
-                    Fulfillment Leg
+                    Source Node to Chennai Destination
                   </div>
-                  <div className="flex items-center gap-1.5 text-slate-200 font-medium">
-                    <span>{action.sourceWarehouseName || 'Original Truck'}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Chennai Hub (MAA-DC-02)</span>
+                  <div className="text-slate-200 font-medium text-[11px]">
+                    {action.sourceLocationDetails}
                   </div>
                   <div className="text-slate-400 text-[11px]">
                     Recovering: <strong className="text-slate-200">{action.quantityToRecover} Units</strong> of SKU <span className="font-mono text-indigo-300">{action.sku}</span>
@@ -258,11 +311,13 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                 {action.notes}
               </div>
 
-              {/* In-place Editing Form if active */}
+              {/* In-place Editing Form */}
               {editingActionId === action.id && (
                 <div className="mt-3 p-3 bg-slate-900 rounded-lg border border-indigo-500/40 space-y-2">
-                  <div className="text-xs font-semibold text-indigo-300">Modify Recovery Action Parameters</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="text-xs font-semibold text-indigo-300">
+                    Modify Recovery Action (Material changes increment version to v{proposal.version + 1} and revoke existing approvals)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                     <div>
                       <label className="block text-[11px] text-slate-400 mb-1">Assigned Carrier</label>
                       <input 
@@ -273,7 +328,16 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1">Operational Notes</label>
+                      <label className="block text-[11px] text-slate-400 mb-1">Recover Quantity</label>
+                      <input 
+                        type="number" 
+                        value={editQuantity} 
+                        onChange={(e) => setEditQuantity(Number(e.target.value))}
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Operational Justification / Notes</label>
                       <input 
                         type="text" 
                         value={editNotes} 
@@ -293,7 +357,7 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
                       onClick={() => handleSaveEdit(action)}
                       className="px-3 py-1 text-xs rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
                     >
-                      Save Modifications
+                      Save Modifications (v{proposal.version + 1})
                     </button>
                   </div>
                 </div>
@@ -303,7 +367,7 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
         </div>
       </div>
 
-      {/* Decision Summary if already decided */}
+      {/* Decision Summary if decided */}
       {proposal.approvalDecision && (
         <div className={`p-4 rounded-lg border text-xs ${
           proposal.approvalDecision.decision === 'APPROVED'
@@ -312,7 +376,7 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
         }`}>
           <div className="font-semibold flex items-center gap-1.5 text-sm mb-1">
             <FileCheck className="w-4 h-4" />
-            Supply Chain Manager Decision: {proposal.approvalDecision.decision}
+            Supply Chain Manager Decision: {proposal.approvalDecision.decision} (Approved for v{proposal.approvalDecision.approvedVersion})
           </div>
           <div>Decided by: <strong>{proposal.approvalDecision.decidedByUserName}</strong> ({proposal.approvalDecision.decidedByUserRole})</div>
           <div>Decision Timestamp: {new Date(proposal.approvalDecision.decidedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</div>
@@ -322,13 +386,12 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
 
       {/* Action Decision & Execution Bar */}
       <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
-        {/* Governance Explanation Banner */}
         <div className="text-xs text-slate-400">
           {proposal.status === 'SUBMITTED' && (
-            <div className="flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <div className="flex items-center gap-1.5 text-amber-300">
+              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
               <span>
-                Four-Eyes Policy: Proposer (<strong>{proposal.createdByName}</strong>) cannot self-approve. Requires an independent Supply Chain Manager.
+                Four-Eyes Policy: Proposer (<strong>{proposal.createdByName}</strong>) and material modifiers cannot self-approve. Requires an independent Supply Chain Manager.
               </span>
             </div>
           )}
@@ -336,7 +399,7 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
             <div className="flex items-center gap-1.5 text-emerald-300">
               <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
               <span>
-                Proposal is fully authorized. Ready for simulation execution.
+                Proposal v{proposal.version} is authorized. Ready for simulation execution.
               </span>
             </div>
           )}
@@ -344,13 +407,12 @@ export const ProposalView: React.FC<ProposalViewProps> = ({
             <div className="flex items-center gap-1.5 text-rose-300">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
               <span>
-                Proposal was rejected. System prohibits execution of rejected plans.
+                Proposal was rejected. System strictly prohibits execution of rejected plans.
               </span>
             </div>
           )}
         </div>
 
-        {/* Buttons */}
         <div className="flex items-center gap-3">
           {proposal.status === 'SUBMITTED' && (
             <button

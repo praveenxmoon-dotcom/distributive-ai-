@@ -1,4 +1,9 @@
-export type UserRole = 'SUPPLY_CHAIN_MANAGER' | 'DISPATCHER' | 'OPERATIONS_PLANNER' | 'AUDITOR';
+export type UserRole = 
+  | 'ADMINISTRATOR'
+  | 'SUPPLY_CHAIN_MANAGER' 
+  | 'DISPATCHER' 
+  | 'OPERATIONS_PLANNER' 
+  | 'AUDITOR';
 
 export interface User {
   id: string;
@@ -16,7 +21,7 @@ export interface Warehouse {
   name: string;
   city: string;
   state: string;
-  type: 'CENTRAL_DC' | 'REGIONAL_HUB' | 'FULFILLMENT_CENTER';
+  type: 'CENTRAL_DC' | 'FULFILLMENT_CENTER';
   coordinates: { lat: number; lng: number };
   operatingHours: string;
   handlingFeePerUnit: number;
@@ -150,22 +155,30 @@ export interface DisruptionIncident {
 }
 
 export type RecoveryStrategyType = 
-  | 'ALTERNATE_HUB_REALLOCATION' 
-  | 'AIR_FREIGHT_EXPEDITE' 
-  | 'SPLIT_ORDER_HYBRID' 
+  | 'AIR_FREIGHT_EXPEDITE_DELHI' 
+  | 'TRANSIT_CROSS_DOCK_NAGPUR' 
+  | 'EXTERNAL_SUPPLIER_EMERGENCY'
+  | 'SPLIT_AIR_AND_TRANSIT' 
   | 'WAIT_ORIGINAL_REPAIR';
+
+export type SourceLocationType = 
+  | 'COMPANY_WAREHOUSE' 
+  | 'TRANSIT_CROSS_DOCK' 
+  | 'EXTERNAL_SUPPLIER';
 
 export interface RecoveryActionItem {
   id: string;
   orderId: string;
   orderNumber: string;
   strategy: RecoveryStrategyType;
+  sourceLocationType: SourceLocationType;
   sku: string;
   quantityToRecover: number;
-  sourceWarehouseId?: string;
+  sourceWarehouseId?: string; // Only set if COMPANY_WAREHOUSE (wh-del-01)
   sourceWarehouseName?: string;
-  targetWarehouseId: string;
-  transportMode: 'DEDICATED_EXPRESS_VAN' | 'AIR_CARGO' | 'ORIGINAL_TRUCK' | 'INTERMODAL';
+  sourceLocationDetails: string;
+  targetWarehouseId: string; // wh-maa-02
+  transportMode: 'DEDICATED_EXPRESS_VAN' | 'AIR_CARGO' | 'RELIEF_HAULER_HIGHWAY' | 'ORIGINAL_TRUCK';
   carrierName: string;
   leadTimeHours: number;
   newProjectedEta: string;
@@ -190,16 +203,32 @@ export type ProposalStatus =
   | 'REJECTED' 
   | 'SIMULATED_EXECUTED';
 
+export interface ProposalModificationRecord {
+  version: number;
+  modifiedByUserId: string;
+  modifiedByUserName: string;
+  modifiedByUserRole: UserRole;
+  timestamp: string;
+  description: string;
+}
+
 export interface RecoveryProposal {
   id: string;
   incidentId: string;
   title: string;
   description: string;
   status: ProposalStatus;
+  version: number; // Starts at 1; incremented on material modifications
   createdById: string;
   createdByName: string;
   createdByRole: UserRole;
   createdAt: string;
+  lastModifiedById?: string;
+  lastModifiedByName?: string;
+  lastModifiedByRole?: UserRole;
+  lastModifiedAt?: string;
+  modifierUserIds: string[]; // List of all users who created or modified this proposal
+  modificationHistory: ProposalModificationRecord[];
   updatedAt: string;
   totalEstimatedCost: number;
   totalPenaltySavings: number;
@@ -211,9 +240,9 @@ export interface RecoveryProposal {
     decidedByUserName: string;
     decidedByUserRole: UserRole;
     decision: 'APPROVED' | 'REJECTED';
+    approvedVersion: number; // Exact version approved
     decidedAt: string;
     comments: string;
-    modificationsApplied?: string;
   };
   executionResult?: {
     executedByUserId: string;
@@ -244,14 +273,18 @@ export type AuditEventType =
   | 'RISK_SCORES_EVALUATED'
   | 'PROPOSAL_GENERATED'
   | 'PROPOSAL_MODIFIED'
+  | 'PROPOSAL_APPROVAL_INVALIDATED'
   | 'APPROVAL_BLOCKED_POLICY_VIOLATION'
   | 'PROPOSAL_APPROVED'
   | 'PROPOSAL_REJECTED'
   | 'SIMULATION_EXECUTION_STARTED'
   | 'SIMULATION_EXECUTION_COMPLETED'
-  | 'EXECUTION_BLOCKED_NOT_APPROVED'
+  | 'EXECUTION_BLOCKED_POLICY_VIOLATION'
   | 'INVENTORY_REALLOCATED'
-  | 'SYSTEM_DATABASE_RESET';
+  | 'SYSTEM_DATABASE_RESET'
+  | 'DEMO_RESET_BLOCKED'
+  | 'AUTH_LOGIN'
+  | 'AUTH_FAILED';
 
 export interface AuditLogEntry {
   id: string;
@@ -263,17 +296,16 @@ export interface AuditLogEntry {
     role: UserRole;
     department?: string;
   };
-  entityType: 'INCIDENT' | 'PROPOSAL' | 'SHIPMENT' | 'ORDER' | 'INVENTORY' | 'SYSTEM';
+  entityType: 'INCIDENT' | 'PROPOSAL' | 'SHIPMENT' | 'ORDER' | 'INVENTORY' | 'SYSTEM' | 'AUTH';
   entityId: string;
   summary: string;
   isSimulated: boolean;
   metadata: Record<string, any>;
 }
 
-export interface SystemStateSummary {
-  incidentCount: number;
-  activeShipmentsCount: number;
-  affectedOrdersCount: number;
-  proposalsCount: number;
-  auditTrailCount: number;
+export interface SessionInfo {
+  token: string;
+  user: User;
+  createdAt: string;
+  expiresAt: string;
 }

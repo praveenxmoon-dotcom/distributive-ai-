@@ -31,13 +31,17 @@ import {
   TrendingDown,
   Warehouse as WarehouseIcon,
   Sparkles,
+  Lock,
+  KeyRound,
   Info
 } from 'lucide-react';
 
 export default function App() {
-  // State
+  // Authentication & State
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [sessionToken, setSessionToken] = useState<string>('');
+  
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [inventories, setInventories] = useState<InventoryItem[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -57,20 +61,76 @@ export default function App() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
-  // Load state on mount
+  // Authenticated fetch helper
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    const headers = new Headers(options.headers || {});
+    if (sessionToken) {
+      headers.set('Authorization', `Bearer ${sessionToken}`);
+    }
+    return fetch(url, { ...options, headers });
+  };
+
+  // Initial load: fetch demo users and log in as default user
   useEffect(() => {
-    fetchState();
+    initAuthAndState();
   }, []);
 
-  const fetchState = async () => {
+  const initAuthAndState = async () => {
     try {
-      const res = await fetch('/api/state');
-      const data = await res.json();
-      setUsers(data.users || []);
-      if (!currentUser && data.users && data.users.length > 0) {
-        // Default to Praveen (Senior SCM)
-        setCurrentUser(data.users[0]);
+      // 1. Get demo users list
+      const res = await fetch('/api/auth/demo-users');
+      const demoUsers = await res.json();
+      setUsers(demoUsers);
+
+      // Check saved session or default to Praveen Sharma (SCM)
+      const savedUserId = localStorage.getItem('disruptioniq_user_id') || 'user-scm-01';
+      const targetUser = demoUsers.find((u: any) => u.id === savedUserId) || demoUsers[0];
+
+      if (targetUser) {
+        await loginAsUser(targetUser.id, demoUsers);
       }
+    } catch (err) {
+      console.error('Failed to init auth:', err);
+    }
+  };
+
+  const loginAsUser = async (userId: string, userList?: User[]) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      const data = await res.json();
+      if (res.ok && data.token) {
+        setSessionToken(data.token);
+        setCurrentUser(data.user);
+        localStorage.setItem('disruptioniq_user_id', data.user.id);
+        localStorage.setItem('disruptioniq_token', data.token);
+
+        // Fetch state with newly obtained token
+        await fetchStateWithToken(data.token);
+        showNotification('info', `Signed in as ${data.user.name} (${data.user.role}) with verified session token.`);
+      } else {
+        showNotification('error', data.error || 'Authentication failed');
+      }
+    } catch (err: any) {
+      showNotification('error', err.message);
+    }
+  };
+
+  const fetchStateWithToken = async (token: string) => {
+    try {
+      const res = await fetch('/api/state', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          showNotification('error', 'Session expired. Please switch persona to re-authenticate.');
+        }
+        return;
+      }
+      const data = await res.json();
       setWarehouses(data.warehouses || []);
       setInventories(data.inventories || []);
       setShipments(data.shipments || []);
@@ -83,6 +143,10 @@ export default function App() {
     }
   };
 
+  const fetchState = () => {
+    if (sessionToken) fetchStateWithToken(sessionToken);
+  };
+
   const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 6000);
@@ -90,15 +154,12 @@ export default function App() {
 
   // STEP 1: Create Breakdown Incident
   const handleTriggerBreakdown = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !sessionToken) return;
     setIsCreatingIncident(true);
     try {
-      const res = await fetch('/api/incidents/create-breakdown', {
+      const res = await authFetch('/api/incidents/create-breakdown', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shipmentId: 'shp-del-maa-9042',
           delayHours: 38
@@ -109,7 +170,7 @@ export default function App() {
         showNotification('error', data.error || 'Failed to create incident');
       } else {
         showNotification('success', data.summary || 'Breakdown incident logged successfully!');
-        await fetchState();
+        fetchState();
       }
     } catch (err: any) {
       showNotification('error', err.message);
@@ -120,16 +181,13 @@ export default function App() {
 
   // STEP 4: Generate Recovery Proposal
   const handleGenerateProposal = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !sessionToken) return;
     setIsGeneratingProposal(true);
     try {
       const activeIncident = incidents.find(i => i.status === 'ACTIVE') || incidents[0];
-      const res = await fetch('/api/proposals/generate', {
+      const res = await authFetch('/api/proposals/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           incidentId: activeIncident?.id,
           planType: selectedPlanType
@@ -139,8 +197,8 @@ export default function App() {
       if (!res.ok) {
         showNotification('error', data.error || 'Failed to generate proposal');
       } else {
-        showNotification('success', 'Recovery proposal generated with multi-hub stock verification.');
-        await fetchState();
+        showNotification('success', 'Recovery proposal generated with 2-warehouse stock and transit cross-dock modeling.');
+        fetchState();
       }
     } catch (err: any) {
       showNotification('error', err.message);
@@ -149,39 +207,33 @@ export default function App() {
     }
   };
 
-  // STEP 5: Modify Proposal Action
-  const handleModifyProposalAction = async (actionId: string, transportMode: any, carrierName: string, notes: string) => {
-    if (!latestProposal || !currentUser) return;
+  // STEP 5: Modify Proposal Action (triggers material modification and invalidates prior approvals)
+  const handleModifyProposalAction = async (actionId: string, transportMode: any, carrierName: string, notes: string, quantityToRecover?: number) => {
+    if (!latestProposal || !currentUser || !sessionToken) return;
     try {
-      const res = await fetch(`/api/proposals/${latestProposal.id}/modify`, {
+      const res = await authFetch(`/api/proposals/${latestProposal.id}/modify`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        },
-        body: JSON.stringify({ actionId, transportMode, carrierName, notes })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionId, transportMode, carrierName, notes, quantityToRecover })
       });
       const data = await res.json();
       if (!res.ok) {
         showNotification('error', data.error || 'Modification failed.');
       } else {
-        showNotification('success', 'Proposal action modified and recorded in audit log.');
-        await fetchState();
+        showNotification('success', data.message || 'Proposal modified.');
+        fetchState();
       }
     } catch (err: any) {
       showNotification('error', err.message);
     }
   };
 
-  // STEP 5 & 6: Decide (Approve / Reject) Proposal
+  // STEP 5 & 6: SCM Decision Gate (Approve / Reject)
   const handleDecideProposal = async (proposalId: string, decision: 'APPROVED' | 'REJECTED', comments: string) => {
-    if (!currentUser) return;
-    const res = await fetch(`/api/proposals/${proposalId}/decide`, {
+    if (!currentUser || !sessionToken) return;
+    const res = await authFetch(`/api/proposals/${proposalId}/decide`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': currentUser.id
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision, comments })
     });
     const data = await res.json();
@@ -189,27 +241,24 @@ export default function App() {
       throw new Error(data.error || 'Failed to submit decision.');
     }
     showNotification('success', data.message || `Proposal ${decision} successfully.`);
-    await fetchState();
+    fetchState();
   };
 
   // STEP 7: Execute Simulation
   const handleExecuteSimulation = async (proposal: RecoveryProposal) => {
-    if (!currentUser) return;
+    if (!currentUser || !sessionToken) return;
     setIsExecuting(true);
     try {
-      const res = await fetch(`/api/proposals/${proposal.id}/execute`, {
+      const res = await authFetch(`/api/proposals/${proposal.id}/execute`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       const data = await res.json();
       if (!res.ok) {
         showNotification('error', data.error || 'Execution blocked by server.');
       } else {
         showNotification('success', data.message || 'Simulation executed successfully.');
-        await fetchState();
+        fetchState();
       }
     } catch (err: any) {
       showNotification('error', err.message);
@@ -218,24 +267,32 @@ export default function App() {
     }
   };
 
-  // Reset Demo State
+  // Reset Demo State (Restricted to Administrator role)
   const handleResetDemo = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !sessionToken) return;
+
+    if (currentUser.role !== 'ADMINISTRATOR') {
+      showNotification(
+        'error',
+        `Access Denied: Demo state reset is strictly restricted to the Administrator role. You are signed in as '${currentUser.name}' (${currentUser.role}). Switch to Devika Roy (Administrator) to reset.`
+      );
+      return;
+    }
+
     try {
-      const res = await fetch('/api/reset', {
+      const res = await authFetch('/api/reset', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': currentUser.id
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       const data = await res.json();
       if (res.ok) {
-        showNotification('info', 'Demo state reset to clean baseline (SHP-DEL-MAA-9042 in nominal transit).');
-        await fetchState();
+        showNotification('info', 'Demo state reset to clean 2-warehouse baseline by Administrator.');
+        fetchState();
+      } else {
+        showNotification('error', data.error || 'Reset failed.');
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      showNotification('error', err.message);
     }
   };
 
@@ -245,14 +302,6 @@ export default function App() {
   const affectedOrders = orders.filter(o => primaryShipment?.orderIds.includes(o.id));
   const latestProposal = proposals[0];
   const recoveryShipments = shipments.filter(s => s.id !== 'shp-del-maa-9042');
-
-  // Determine active workflow step
-  let currentWorkflowStep = 1;
-  if (activeIncident) currentWorkflowStep = 2;
-  if (affectedOrders.some(o => o.riskAssessment)) currentWorkflowStep = 3;
-  if (latestProposal) currentWorkflowStep = 4;
-  if (latestProposal && latestProposal.status !== 'SUBMITTED') currentWorkflowStep = 5;
-  if (latestProposal && latestProposal.status === 'SIMULATED_EXECUTED') currentWorkflowStep = 7;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -267,34 +316,34 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold text-white tracking-tight">DisruptionIQ</h1>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono font-medium border border-indigo-500/30">
-                  MILESTONE 1 (END-TO-END)
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-medium border border-emerald-500/30">
+                  MILESTONE 1 (HARDENED)
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
+                  2 Warehouses: Delhi & Chennai
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                From Delivery Delays to Recovery Plans • Deterministic Supply Chain Resolution
+                From Delivery Delays to Recovery Plans • Verified Authentication & Two-Warehouse Governance
               </p>
             </div>
           </div>
 
           {/* User Session Switcher & Actions */}
           <div className="flex flex-wrap items-center gap-3">
-            {/* Authenticated User Selector */}
+            {/* Authenticated Persona Switcher */}
             <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
-              <Users className="w-4 h-4 text-indigo-400" />
+              <KeyRound className="w-4 h-4 text-emerald-400" />
               <div className="text-xs">
-                <span className="text-slate-400 text-[11px] block">Active Persona / Role:</span>
+                <span className="text-slate-400 text-[11px] block">Authenticated Persona:</span>
                 <select
                   value={currentUser?.id || ''}
-                  onChange={(e) => {
-                    const found = users.find(u => u.id === e.target.value);
-                    if (found) setCurrentUser(found);
-                  }}
+                  onChange={(e) => loginAsUser(e.target.value)}
                   className="bg-transparent text-slate-200 font-semibold focus:outline-none cursor-pointer pr-1"
                 >
                   {users.map(u => (
                     <option key={u.id} value={u.id} className="bg-slate-900 text-slate-100">
-                      {u.name} — {u.role === 'SUPPLY_CHAIN_MANAGER' ? 'SCM (Approver)' : `${u.role} (Proposer)`}
+                      {u.name} — {u.role === 'ADMINISTRATOR' ? 'ADMIN' : u.role === 'SUPPLY_CHAIN_MANAGER' ? 'SCM (Approver)' : `${u.role}`}
                     </option>
                   ))}
                 </select>
@@ -307,17 +356,21 @@ export default function App() {
               className="px-3 py-1.5 rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 text-xs font-semibold border border-indigo-700/60 flex items-center gap-1.5 transition-colors"
             >
               <ShieldCheck className="w-4 h-4 text-indigo-400" />
-              <span>Compliance Tests (8/8)</span>
+              <span>Compliance Tests (10/10)</span>
             </button>
 
-            {/* Reset Demo Button */}
+            {/* Reset Demo Button (Admin only) */}
             <button
               onClick={handleResetDemo}
-              title="Reset state to initial clean baseline"
-              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 transition-colors border border-slate-700"
+              title={currentUser?.role === 'ADMINISTRATOR' ? 'Reset demo state to baseline' : 'Demo reset is restricted to Administrator role (Devika Roy)'}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors border ${
+                currentUser?.role === 'ADMINISTRATOR'
+                  ? 'bg-rose-950/60 hover:bg-rose-900 text-rose-300 border-rose-800'
+                  : 'bg-slate-800/80 text-slate-400 border-slate-700 hover:text-slate-200'
+              }`}
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Demo</span>
+              <span>Reset Demo {currentUser?.role !== 'ADMINISTRATOR' ? '(Admin Only)' : ''}</span>
             </button>
           </div>
         </div>
@@ -349,10 +402,9 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
             <span className="font-semibold text-slate-300 flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-indigo-400" />
-              <span>End-to-End Workflow Milestone Progression:</span>
+              <span>Two-Warehouse Disruption Resolution Stepper:</span>
             </span>
 
-            {/* Stepper bubbles */}
             <div className="flex flex-wrap items-center gap-2">
               <span className={`px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 ${
                 activeIncident 
@@ -381,7 +433,7 @@ export default function App() {
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                   : 'bg-slate-800 text-slate-400'
               }`}>
-                <span>4. Recovery Synthesis</span>
+                <span>4. Recovery Synthesis (v{latestProposal?.version || 1})</span>
                 {latestProposal && <CheckCircle2 className="w-3.5 h-3.5" />}
               </span>
 
@@ -444,7 +496,7 @@ export default function App() {
             }`}
           >
             <Layers className="w-4 h-4" />
-            <span>Multi-Hub Inventory Matrix ({inventories.length} SKUs)</span>
+            <span>2-Warehouse Inventory Matrix ({inventories.length} SKUs)</span>
           </button>
 
           <button
@@ -468,7 +520,7 @@ export default function App() {
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            <span>Governance Rules & Verification</span>
+            <span>Governance Rules & Security Limitations</span>
           </button>
         </div>
       </div>
@@ -494,11 +546,11 @@ export default function App() {
                       1
                     </span>
                     <h3 className="text-base font-bold text-white">
-                      Step 1: Create Truck Breakdown Incident (Delhi to Chennai)
+                      Step 1: Create Truck Breakdown Incident (Delhi to Chennai Corridor)
                     </h3>
                   </div>
                   <p className="text-xs text-slate-400 max-w-2xl leading-relaxed">
-                    Shipment <strong>{primaryShipment?.trackingNumber}</strong> is currently in nominal transit along NH-44 carrying 4 customer orders (Apollo Hospitals, Hyundai Motors, SunTech Energy, Croma Retail). Trigger a mechanical breakdown near Nagpur to initiate risk evaluation and recovery planning.
+                    Shipment <strong>{primaryShipment?.trackingNumber}</strong> is travelling between our two demo warehouses, <strong>Delhi Central DC</strong> and <strong>Chennai Fulfillment Hub</strong>. Trigger an axle breakdown near Nagpur highway transit waypoint to initiate deterministic risk scoring and recovery planning.
                   </p>
                 </div>
 
@@ -528,11 +580,11 @@ export default function App() {
                       {activeIncident.description}
                     </p>
                     <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-400">
-                      <span>Location: <strong className="text-slate-200">{activeIncident.locationName}</strong></span>
+                      <span>Transit Waypoint: <strong className="text-slate-200">{activeIncident.locationName}</strong></span>
                       <span>•</span>
                       <span>Projected Delay: <strong className="text-rose-400">+{activeIncident.estimatedDelayHours} Hours</strong></span>
                       <span>•</span>
-                      <span>Affected Orders Identified: <strong className="text-slate-200">{activeIncident.affectedOrderIds.length}</strong></span>
+                      <span>Affected Orders: <strong className="text-slate-200">{activeIncident.affectedOrderIds.length}</strong></span>
                     </div>
                   </div>
                 </div>
@@ -559,12 +611,12 @@ export default function App() {
                       </h3>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Deterministic mathematical ranking based on SLA breach margin, contractual daily penalty liability, and downstream operational halt risk.
+                      Deterministic mathematical scoring based on SLA breach margin, contractual daily breach penalty, and downstream operational halt risk.
                     </p>
                   </div>
 
                   <div className="text-xs text-slate-400 font-mono">
-                    Sorted by Risk Score Descending
+                    Ranked by Priority Score Descending
                   </div>
                 </div>
 
@@ -585,11 +637,11 @@ export default function App() {
                     4
                   </span>
                   <h3 className="text-base font-bold text-white">
-                    Step 4: Generate Feasible Recovery Proposal
+                    Step 4: Generate Feasible Recovery Proposal (Strict 2-Warehouse Constraints)
                   </h3>
                 </div>
                 <p className="text-xs text-slate-400 max-w-3xl leading-relaxed">
-                  DisruptionIQ queries live inventory records across the 4 network hubs (Delhi, Bengaluru, Chennai, Mumbai) and applies real transport cost tables to synthesize actionable recovery proposals with verified stock availability.
+                  DisruptionIQ synthesizes feasible recovery legs using only the two demo warehouses (Delhi Central DC and Chennai), highway relief cross-docking at Nagpur transit waypoint, and contractually verified external partner capacity.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
@@ -602,11 +654,11 @@ export default function App() {
                     }`}
                   >
                     <div className="font-bold text-xs text-indigo-300 flex items-center justify-between">
-                      <span>Optimal Multi-Hub Reallocation</span>
+                      <span>Optimal Multi-Modal Plan</span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono">Recommended</span>
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Reallocates stock from Bengaluru Regional Hub (BLR-DC-03, 340 km away) via dedicated express van. Saves ₹155,000+ in penalties with lowest freight cost.
+                      Air freight from Delhi Central DC for oncology reagents, highway relief hauler cross-dock at Nagpur (KM 742) for automotive ECMs, and external partner in Chennai for solar boards.
                     </p>
                   </button>
 
@@ -619,10 +671,10 @@ export default function App() {
                     }`}
                   >
                     <div className="font-bold text-xs text-sky-300">
-                      Emergency Air Cargo Direct
+                      Emergency Delhi Air Cargo Expedite
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Direct air cargo dispatch from Delhi Indira Gandhi Airport to Chennai MAA Airport (5.5h lead time). Maximum speed for high-value cargo.
+                      Direct air cargo dispatch from Delhi Central DC (DEL-DC-01) via Indira Gandhi Airport to Chennai Airport (6.5h lead time). Maximum recovery speed using Delhi company stock.
                     </p>
                   </button>
 
@@ -635,10 +687,10 @@ export default function App() {
                     }`}
                   >
                     <div className="font-bold text-xs text-purple-300">
-                      Conservative Split & Buffer Plan
+                      Conservative Split & Transit Plan
                     </div>
                     <p className="text-[11px] text-slate-400 mt-1">
-                      Splits batch quantities: fast-tracks critical buffer lots via road express; allows non-critical orders (Croma Retail) to continue on repaired truck.
+                      Fast-tracks urgent buffer lots via Air Cargo from Delhi DC to protect line stoppage; remainder proceeds via highway relief truck cross-docked at Nagpur.
                     </p>
                   </button>
                 </div>
@@ -664,7 +716,7 @@ export default function App() {
                     4, 5, 6
                   </span>
                   <h3 className="text-base font-bold text-white">
-                    Recovery Plan & Governance Review Gate
+                    Recovery Plan Review & Governance Gate (v{latestProposal.version})
                   </h3>
                 </div>
 
@@ -703,14 +755,14 @@ export default function App() {
           </div>
         )}
 
-        {/* ---------------- Tab 2: Inventory Multi-Hub Matrix ---------------- */}
+        {/* ---------------- Tab 2: Inventory 2-Warehouse Matrix ---------------- */}
         {activeTab === 'INVENTORY' && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
               <div>
-                <h3 className="font-bold text-white text-base">Multi-Hub Demo Inventory Records</h3>
+                <h3 className="font-bold text-white text-base">Two-Warehouse Demo Inventory Records</h3>
                 <p className="text-xs text-slate-400">
-                  Live database inventory for Delhi, Bengaluru, Chennai, and Mumbai nodes. Stock availability is verified in real-time.
+                  Authoritative inventory strictly for Delhi Central DC (`wh-del-01`) and Chennai Fulfillment Hub (`wh-maa-02`).
                 </p>
               </div>
               <div className="text-xs text-slate-400 font-mono">
@@ -790,73 +842,96 @@ export default function App() {
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-indigo-400" />
-                  <h3 className="font-bold text-white text-base">Server-Side Business Rules & Governance Specifications</h3>
+                  <h3 className="font-bold text-white text-base">Server-Side Business Rules & Security Architecture</h3>
                 </div>
                 <button
                   onClick={() => setIsTestModalOpen(true)}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-md"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  Run Live Compliance Test Suite (8 Tests)
+                  Run Live Compliance Suite (10 Tests)
                 </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed">
                 <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-bold text-indigo-300 flex items-center gap-1.5">
-                    <Users className="w-4 h-4" />
-                    <span>Rule 1: Supply Chain Manager Role Authorization</span>
+                    <KeyRound className="w-4 h-4" />
+                    <span>Rule 1: Server-Validated Authentication & Role Gates</span>
                   </div>
                   <p className="text-slate-300">
-                    Proposals can only be approved or rejected by an authenticated user holding the <code>SUPPLY_CHAIN_MANAGER</code> role. Attempts by Dispatchers, Planners, or Auditors are rejected server-side with HTTP 403 Forbidden.
+                    All sensitive endpoints require a server-issued Bearer token. Unauthenticated requests and forged tokens are rejected with HTTP 401. User impersonation via headers or request bodies is strictly forbidden.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-bold text-indigo-300 flex items-center gap-1.5">
                     <ShieldCheck className="w-4 h-4" />
-                    <span>Rule 2: Maker-Checker Separation of Duties (Four-Eyes Principle)</span>
+                    <span>Rule 2: Maker-Checker Policy (Proposer & Modifier Blocked)</span>
                   </div>
                   <p className="text-slate-300">
-                    The proposal author (<code>proposal.createdById</code>) is strictly prohibited from approving their own recovery plan. Even if the author is a Supply Chain Manager, an independent second manager must review and authorize.
+                    Neither the proposal creator (<code>createdById</code>) nor any user who made material modifications (<code>modifierUserIds</code>) can approve their own proposal. An independent Supply Chain Manager is mandatory.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-bold text-indigo-300 flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-amber-400" />
-                    <span>Rule 3: Unapproved / Rejected Plan Execution Prevention</span>
+                    <span>Rule 3: Material Modifications Invalidate Approval</span>
                   </div>
                   <p className="text-slate-300">
-                    Proposals in <code>DRAFT</code>, <code>SUBMITTED</code>, or <code>REJECTED</code> status cannot be executed. The server immediately blocks execution with HTTP 409 Conflict.
+                    Any modification to a proposal increments its version (e.g. v1 to v2) and immediately revokes any prior approval, reverting its status to <code>SUBMITTED</code> for re-review. Execution requires approval of the exact current version.
                   </p>
                 </div>
 
                 <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
                   <div className="font-bold text-indigo-300 flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-emerald-400" />
-                    <span>Rule 4: Live Inventory Validation & Atomic Execution</span>
+                    <WarehouseIcon className="w-4 h-4 text-emerald-400" />
+                    <span>Rule 4: Two-Warehouse Network Integrity</span>
                   </div>
                   <p className="text-slate-300">
-                    Simulated execution checks actual database stock (<code>quantityOnHand - reservedQuantity</code>). Deductions and expedited dispatch records are committed atomically.
+                    The company network contains exactly two warehouses: Delhi (DEL-DC-01) and Chennai (MAA-DC-02). All alternative legs utilize transit cross-docks (Nagpur KM 742) or verified external suppliers, never invented company warehouses.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-rose-400" />
+                    <span>Rule 5: Administrator-Restricted Demo Reset</span>
+                  </div>
+                  <p className="text-slate-300">
+                    Only users holding the <code>ADMINISTRATOR</code> role (Devika Roy) can execute a demo state reset. Attempts by Supply Chain Managers or Dispatchers are blocked with HTTP 403.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="font-bold text-indigo-300 flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-cyan-400" />
+                    <span>Rule 6: Immediate Stock Re-Validation & Negative Inventory Check</span>
+                  </div>
+                  <p className="text-slate-300">
+                    Prior to execution, stock is verified in real-time. Execution is aborted if available units are insufficient or if deduction would produce negative inventory. Duplicate execution is strictly blocked.
                   </p>
                 </div>
               </div>
-            </div>
 
-            {/* Test Runner Embedded View */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-slate-100 shadow-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-bold text-white text-sm">Automated Test Execution</h4>
-                  <p className="text-xs text-slate-400">Run the compliance suite covering the exact requirements from Milestone 1</p>
+              {/* Documentation of Demo-Only Security Limitations */}
+              <div className="mt-4 p-4 rounded-xl bg-slate-950 border border-amber-500/30 text-xs space-y-2">
+                <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <Info className="w-4 h-4" />
+                  <span>Documented Demo-Only Security Limitations (Milestone 1 Prototype)</span>
                 </div>
-                <button
-                  onClick={() => setIsTestModalOpen(true)}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors shadow-md"
-                >
-                  Open Test Suite Runner
-                </button>
+                <ul className="list-disc pl-5 space-y-1 text-slate-300 text-[11px]">
+                  <li>
+                    <strong>In-Memory Session Store:</strong> Demo authentication generates server-tracked tokens mapped to memory. Server restart regenerates active demo sessions rather than persisting them to an enterprise identity provider (IdP).
+                  </li>
+                  <li>
+                    <strong>Single-Factor Demo Login:</strong> Authentication for hackathon evaluation uses persona credential selection rather than multi-factor enterprise SSO or hardware FIDO2 keys.
+                  </li>
+                  <li>
+                    <strong>Local Disk Persistence:</strong> Data is persisted to an atomic JSON file on the local instance disk rather than an enterprise distributed Cloud SQL / PostgreSQL cluster with row-level security (RLS).
+                  </li>
+                </ul>
               </div>
             </div>
           </div>
@@ -876,6 +951,7 @@ export default function App() {
       <TestSuiteModal
         isOpen={isTestModalOpen}
         onClose={() => setIsTestModalOpen(false)}
+        sessionToken={sessionToken}
       />
     </div>
   );

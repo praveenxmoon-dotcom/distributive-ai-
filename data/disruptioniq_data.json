@@ -1,6 +1,15 @@
 {
   "users": [
     {
+      "id": "user-admin-01",
+      "name": "Devika Roy",
+      "email": "devika.roy@disruptioniq.internal",
+      "role": "ADMINISTRATOR",
+      "title": "Enterprise Supply Chain System Administrator",
+      "department": "IT & Supply Chain Governance",
+      "avatarUrl": "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=120&auto=format&fit=crop&q=80"
+    },
+    {
       "id": "user-scm-01",
       "name": "Praveen Sharma",
       "email": "praveen.sharma@disruptioniq.internal",
@@ -74,34 +83,6 @@
       },
       "operatingHours": "24/7 Operations",
       "handlingFeePerUnit": 55
-    },
-    {
-      "id": "wh-blr-03",
-      "code": "BLR-DC-03",
-      "name": "Bengaluru Regional Logistics Hub",
-      "city": "Bengaluru",
-      "state": "Karnataka",
-      "type": "REGIONAL_HUB",
-      "coordinates": {
-        "lat": 12.9716,
-        "lng": 77.5946
-      },
-      "operatingHours": "06:00 - 23:00 IST",
-      "handlingFeePerUnit": 40
-    },
-    {
-      "id": "wh-bom-04",
-      "code": "BOM-DC-04",
-      "name": "Mumbai Western Distribution Node",
-      "city": "Mumbai",
-      "state": "Maharashtra",
-      "type": "REGIONAL_HUB",
-      "coordinates": {
-        "lat": 19.076,
-        "lng": 72.8777
-      },
-      "operatingHours": "24/7 Operations",
-      "handlingFeePerUnit": 50
     }
   ],
   "inventories": [
@@ -114,19 +95,6 @@
       "quantityOnHand": 240,
       "reservedQuantity": 30,
       "availableQuantity": 210,
-      "unitCost": 15000,
-      "weightKg": 4.2,
-      "storageCondition": "2-8°C Cold Chain"
-    },
-    {
-      "id": "inv-blr-med",
-      "warehouseId": "wh-blr-03",
-      "sku": "SKU-MED-901",
-      "productName": "Cold-Chain Diagnostic Reagents (Bio-Analyzer Kits)",
-      "category": "Cold-Chain Pharma",
-      "quantityOnHand": 45,
-      "reservedQuantity": 0,
-      "availableQuantity": 45,
       "unitCost": 15000,
       "weightKg": 4.2,
       "storageCondition": "2-8°C Cold Chain"
@@ -145,19 +113,6 @@
       "storageCondition": "2-8°C Cold Chain"
     },
     {
-      "id": "inv-bom-med",
-      "warehouseId": "wh-bom-04",
-      "sku": "SKU-MED-901",
-      "productName": "Cold-Chain Diagnostic Reagents (Bio-Analyzer Kits)",
-      "category": "Cold-Chain Pharma",
-      "quantityOnHand": 80,
-      "reservedQuantity": 10,
-      "availableQuantity": 70,
-      "unitCost": 15000,
-      "weightKg": 4.2,
-      "storageCondition": "2-8°C Cold Chain"
-    },
-    {
       "id": "inv-del-auto",
       "warehouseId": "wh-del-01",
       "sku": "SKU-AUTO-404",
@@ -166,19 +121,6 @@
       "quantityOnHand": 180,
       "reservedQuantity": 25,
       "availableQuantity": 155,
-      "unitCost": 35000,
-      "weightKg": 1.8,
-      "storageCondition": "Controlled Climate"
-    },
-    {
-      "id": "inv-blr-auto",
-      "warehouseId": "wh-blr-03",
-      "sku": "SKU-AUTO-404",
-      "productName": "Tier-1 Automotive ECM-9 Engine Micro-Controllers",
-      "category": "Automotive Spares",
-      "quantityOnHand": 35,
-      "reservedQuantity": 0,
-      "availableQuantity": 35,
       "unitCost": 35000,
       "weightKg": 1.8,
       "storageCondition": "Controlled Climate"
@@ -210,19 +152,6 @@
       "storageCondition": "Ambient"
     },
     {
-      "id": "inv-blr-solar",
-      "warehouseId": "wh-blr-03",
-      "sku": "SKU-SOLAR-210",
-      "productName": "Industrial Inverter Power Distribution Boards",
-      "category": "Renewable Energy",
-      "quantityOnHand": 25,
-      "reservedQuantity": 0,
-      "availableQuantity": 25,
-      "unitCost": 22000,
-      "weightKg": 8.5,
-      "storageCondition": "Ambient"
-    },
-    {
       "id": "inv-maa-solar",
       "warehouseId": "wh-maa-02",
       "sku": "SKU-SOLAR-210",
@@ -244,19 +173,6 @@
       "quantityOnHand": 400,
       "reservedQuantity": 50,
       "availableQuantity": 350,
-      "unitCost": 13000,
-      "weightKg": 3.1,
-      "storageCondition": "Ambient"
-    },
-    {
-      "id": "inv-blr-retl",
-      "warehouseId": "wh-blr-03",
-      "sku": "SKU-RETL-105",
-      "productName": "Commercial Smart POS & Interactive Display Consoles",
-      "category": "Consumer Electronics",
-      "quantityOnHand": 110,
-      "reservedQuantity": 0,
-      "availableQuantity": 110,
       "unitCost": 13000,
       "weightKg": 3.1,
       "storageCondition": "Ambient"
@@ -330,7 +246,7 @@
         },
         {
           "id": "ms-04",
-          "locationName": "Nagpur / Hinganghat Corridor (KM 742 on NH-44)",
+          "locationName": "Nagpur / Hinganghat Highway Transit Waypoint (KM 742 on NH-44)",
           "coordinates": {
             "lat": 20.56,
             "lng": 78.84
@@ -341,7 +257,7 @@
         },
         {
           "id": "ms-05",
-          "locationName": "Hyderabad Outer Ring Road Freight Junction",
+          "locationName": "Hyderabad Freight Transit Node",
           "coordinates": {
             "lat": 17.385,
             "lng": 78.4867
@@ -474,23 +390,23 @@
   "proposals": [],
   "auditLogs": [
     {
-      "id": "audit-init-01",
-      "timestamp": "2026-10-30T15:05:51.901Z",
+      "id": "audit-reset-1793379191096",
+      "timestamp": "2026-10-30T16:53:11.096Z",
       "eventType": "SYSTEM_DATABASE_RESET",
       "actor": {
-        "id": "system",
-        "name": "DisruptionIQ Platform Kernel",
-        "role": "SUPPLY_CHAIN_MANAGER",
-        "department": "System Architecture"
+        "id": "user-admin-01",
+        "name": "Devika Roy",
+        "role": "ADMINISTRATOR",
+        "department": "IT & Supply Chain Governance"
       },
       "entityType": "SYSTEM",
-      "entityId": "system-seed",
-      "summary": "Initialized baseline supply chain state: 4 Hubs, 4 SKUs, 1 active Delhi-Chennai shipment (SHP-DEL-MAA-9042), 4 customer orders.",
+      "entityId": "system-reset",
+      "summary": "System state reset to clean 2-warehouse demo baseline by Administrator Devika Roy.",
       "isSimulated": false,
       "metadata": {
-        "warehousesCount": 4,
-        "ordersCount": 4,
-        "baselineShipment": "SHP-DEL-MAA-9042"
+        "resetBy": "Devika Roy",
+        "role": "ADMINISTRATOR",
+        "timestamp": "2026-10-30T16:53:11.096Z"
       }
     }
   ]

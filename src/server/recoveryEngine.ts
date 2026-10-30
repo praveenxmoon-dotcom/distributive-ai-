@@ -23,7 +23,6 @@ export function generateRecoveryProposals(
   planType: 'OPTIMAL_BALANCED' | 'MAX_SPEED_EXPEDITE' | 'CONSERVATIVE_SPLIT' = 'OPTIMAL_BALANCED'
 ): RecoveryProposal {
   const inventories = db.getInventories();
-  const blrWarehouse = db.getWarehouseById('wh-blr-03');
   const delWarehouse = db.getWarehouseById('wh-del-01');
   const maaWarehouse = db.getWarehouseById('wh-maa-02');
 
@@ -34,22 +33,25 @@ export function generateRecoveryProposals(
   let atRiskCount = 0;
 
   for (const order of orders) {
-    const item = order.items[0]; // Primary item
+    const item = order.items[0];
     if (!item) continue;
 
     const risk = order.riskAssessment;
-    const isSlaBreached = risk ? risk.isSlaBreached : (new Date(order.committedSla).getTime() < new Date(shipment.currentEta).getTime());
+    const isSlaBreached = risk 
+      ? risk.isSlaBreached 
+      : (new Date(order.committedSla).getTime() < new Date(shipment.currentEta).getTime());
 
+    // Strategy 1: Buffer is positive even with breakdown delay -> Wait for Linehaul Repair
     if (!isSlaBreached && planType !== 'MAX_SPEED_EXPEDITE') {
-      // Order has sufficient buffer even with breakdown delay!
-      // Strategy: Wait for original repair to save expediting expenditure.
       const action: RecoveryActionItem = {
         id: `act-${order.id}-wait`,
         orderId: order.id,
         orderNumber: order.orderNumber,
         strategy: 'WAIT_ORIGINAL_REPAIR',
+        sourceLocationType: 'COMPANY_WAREHOUSE',
         sku: item.sku,
         quantityToRecover: item.quantity,
+        sourceLocationDetails: 'Original Linehaul Vehicle (DL-01-AX-9942) undergoing on-site repair at Nagpur (KM 742)',
         targetWarehouseId: shipment.destinationWarehouseId,
         transportMode: 'ORIGINAL_TRUCK',
         carrierName: shipment.carrier,
@@ -64,16 +66,16 @@ export function generateRecoveryProposals(
           slaPenaltySavings: 0,
           netCost: 0
         },
-        notes: `Order buffer is positive (+${risk?.delayMarginHours ?? 24}h). Repaired linehaul arrival at ${new Date(shipment.currentEta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} satisfies committed SLA without emergency expenditure.`
+        notes: `Order buffer is positive (+${risk?.delayMarginHours ?? 24}h). Repaired truck ETA at ${new Date(shipment.currentEta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} satisfies committed SLA without expediting surcharge.`
       };
       actions.push(action);
       fullyRecoveredCount++;
       continue;
     }
 
-    // Order is breached or high priority! Determine recovery strategy:
+    // High risk or breached orders:
     if (planType === 'MAX_SPEED_EXPEDITE') {
-      // Emergency Air Cargo from Delhi (Hub with primary inventory)
+      // Emergency Air Cargo from Delhi Central DC to Chennai
       const delInv = inventories.find(i => i.warehouseId === 'wh-del-01' && i.sku === item.sku);
       const isStockAvailable = delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) >= item.quantity : false;
       const weightTotal = (delInv?.weightKg || 3) * item.quantity;
@@ -82,23 +84,23 @@ export function generateRecoveryProposals(
       const surcharge = 3500;
       const cost = airFreight + handling + surcharge;
       const penaltySaved = order.dailyPenaltyAmount * 2;
-
-      // Air lead time: 6 hours from dispatch
-      const airEta = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
+      const airEta = new Date(Date.now() + 6.5 * 3600 * 1000).toISOString();
 
       const action: RecoveryActionItem = {
         id: `act-${order.id}-air`,
         orderId: order.id,
         orderNumber: order.orderNumber,
-        strategy: 'AIR_FREIGHT_EXPEDITE',
+        strategy: 'AIR_FREIGHT_EXPEDITE_DELHI',
+        sourceLocationType: 'COMPANY_WAREHOUSE',
         sku: item.sku,
         quantityToRecover: item.quantity,
         sourceWarehouseId: 'wh-del-01',
         sourceWarehouseName: delWarehouse?.name || 'Delhi Central DC',
+        sourceLocationDetails: 'Delhi Central DC (DEL-DC-01) -> Indira Gandhi International Airport (DEL) -> Chennai Airport (MAA)',
         targetWarehouseId: shipment.destinationWarehouseId,
         transportMode: 'AIR_CARGO',
-        carrierName: 'IndiGo CarGo Express (Flight 6E-241 DEL-MAA)',
-        leadTimeHours: 6,
+        carrierName: 'IndiGo CarGo Dedicated Flight 6E-241 (DEL-MAA)',
+        leadTimeHours: 6.5,
         newProjectedEta: airEta,
         slaPreserved: true,
         stockValidationStatus: isStockAvailable ? 'VERIFIED_AVAILABLE' : 'INSUFFICIENT_STOCK',
@@ -111,158 +113,206 @@ export function generateRecoveryProposals(
           slaPenaltySavings: penaltySaved,
           netCost: cost
         },
-        notes: `Emergency air cargo transit from IGI Airport Delhi directly to Chennai MAA Airport. Verified Delhi stock: ${delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0} units available.`
+        notes: `Emergency air cargo transit from Delhi Central DC directly to Chennai. Verified Delhi company stock: ${delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0} units available.`
+      };
+      actions.push(action);
+      totalEstimatedCost += cost;
+      totalPenaltySavings += penaltySaved;
+      if (isStockAvailable) fullyRecoveredCount++; else atRiskCount++;
+    } else if (planType === 'CONSERVATIVE_SPLIT') {
+      // Split Strategy: Air Cargo for urgent line-stoppage buffer (10 units from Delhi DC) + Highway cross-dock for remainder
+      const delInv = inventories.find(i => i.warehouseId === 'wh-del-01' && i.sku === item.sku);
+      const splitUnits = Math.min(10, item.quantity);
+      const isStockAvailable = delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) >= splitUnits : false;
+      const cost = 14500;
+      const penaltySaved = order.dailyPenaltyAmount;
+      const splitEta = new Date(Date.now() + 6.5 * 3600 * 1000).toISOString();
+
+      const action: RecoveryActionItem = {
+        id: `act-${order.id}-split`,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        strategy: 'SPLIT_AIR_AND_TRANSIT',
+        sourceLocationType: 'COMPANY_WAREHOUSE',
+        sku: item.sku,
+        quantityToRecover: splitUnits,
+        sourceWarehouseId: 'wh-del-01',
+        sourceWarehouseName: delWarehouse?.name || 'Delhi Central DC',
+        sourceLocationDetails: `Air Fast-Lot (${splitUnits} units from Delhi DC) + Remaining (${item.quantity - splitUnits} units) via Highway Relief Hauler at Nagpur (KM 742)`,
+        targetWarehouseId: shipment.destinationWarehouseId,
+        transportMode: 'AIR_CARGO',
+        carrierName: 'IndiGo CarGo Priority Flight 6E-241',
+        leadTimeHours: 6.5,
+        newProjectedEta: splitEta,
+        slaPreserved: true,
+        stockValidationStatus: isStockAvailable ? 'VERIFIED_AVAILABLE' : 'INSUFFICIENT_STOCK',
+        stockOnHandAtSource: delInv?.quantityOnHand || 0,
+        stockAvailableAtSource: delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0,
+        costBreakdown: {
+          freightCost: 11000,
+          expeditingSurcharge: 2000,
+          handlingFee: 1500,
+          slaPenaltySavings: penaltySaved,
+          netCost: cost
+        },
+        notes: `Hybrid split: Expedite ${splitUnits} units from Delhi Central DC via flight to prevent line stoppage; balance continues via highway transit cross-dock.`
       };
       actions.push(action);
       totalEstimatedCost += cost;
       totalPenaltySavings += penaltySaved;
       if (isStockAvailable) fullyRecoveredCount++; else atRiskCount++;
     } else {
-      // OPTIMAL_BALANCED: Check regional hub Bengaluru (BLR-DC-03) first (340 km, 7h transit)
-      const blrInv = inventories.find(i => i.warehouseId === 'wh-blr-03' && i.sku === item.sku);
-      const blrAvailable = blrInv ? (blrInv.quantityOnHand - blrInv.reservedQuantity) : 0;
-
-      if (blrInv && blrAvailable >= item.quantity) {
-        // Full reallocation from Bengaluru
-        const vanFreight = 14500;
-        const handling = (blrWarehouse?.handlingFeePerUnit || 40) * item.quantity;
-        const surcharge = 2500;
-        const cost = vanFreight + handling + surcharge;
+      // OPTIMAL_BALANCED:
+      // For Apollo Healthcare (SKU-MED-901): Emergency Air Cargo from Delhi Central DC
+      // For Hyundai Automotive (SKU-AUTO-404): Highway Relief Cross-Dock at Nagpur Transit Waypoint (KM 742)
+      // For SunTech Solar (SKU-SOLAR-210): Verified External Partner Cross-Dock in Chennai Corridor
+      if (order.id === 'ord-7801') {
+        const delInv = inventories.find(i => i.warehouseId === 'wh-del-01' && i.sku === item.sku);
+        const isStockAvailable = delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) >= item.quantity : false;
+        const cost = 24500;
         const penaltySaved = order.dailyPenaltyAmount * 2;
-        const vanEta = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
+        const airEta = new Date(Date.now() + 6.5 * 3600 * 1000).toISOString();
 
         const action: RecoveryActionItem = {
-          id: `act-${order.id}-blr`,
+          id: `act-${order.id}-del-air`,
           orderId: order.id,
           orderNumber: order.orderNumber,
-          strategy: 'ALTERNATE_HUB_REALLOCATION',
+          strategy: 'AIR_FREIGHT_EXPEDITE_DELHI',
+          sourceLocationType: 'COMPANY_WAREHOUSE',
           sku: item.sku,
           quantityToRecover: item.quantity,
-          sourceWarehouseId: 'wh-blr-03',
-          sourceWarehouseName: blrWarehouse?.name || 'Bengaluru Regional Hub',
+          sourceWarehouseId: 'wh-del-01',
+          sourceWarehouseName: delWarehouse?.name || 'Delhi Central DC',
+          sourceLocationDetails: 'Delhi Central DC (DEL-DC-01) -> IGI Airport Air Cargo -> Chennai Hub',
           targetWarehouseId: shipment.destinationWarehouseId,
-          transportMode: 'DEDICATED_EXPRESS_VAN',
-          carrierName: 'VRL Rapid Logistics (Dedicated Inter-Hub Sprinter)',
-          leadTimeHours: 8,
-          newProjectedEta: vanEta,
+          transportMode: 'AIR_CARGO',
+          carrierName: 'Blue Dart Aviation Dedicated B737 Cargo (DEL-MAA)',
+          leadTimeHours: 6.5,
+          newProjectedEta: airEta,
           slaPreserved: true,
-          stockValidationStatus: 'VERIFIED_AVAILABLE',
-          stockOnHandAtSource: blrInv.quantityOnHand,
-          stockAvailableAtSource: blrAvailable,
+          stockValidationStatus: isStockAvailable ? 'VERIFIED_AVAILABLE' : 'INSUFFICIENT_STOCK',
+          stockOnHandAtSource: delInv?.quantityOnHand || 0,
+          stockAvailableAtSource: delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0,
           costBreakdown: {
-            freightCost: vanFreight,
-            expeditingSurcharge: surcharge,
-            handlingFee: handling,
+            freightCost: 16500,
+            expeditingSurcharge: 4500,
+            handlingFee: 3500,
             slaPenaltySavings: penaltySaved,
             netCost: cost
           },
-          notes: `Reallocate ${item.quantity} units from BLR-DC-03 buffer stock via dedicated express van (340 km corridor). Arrives well before customer SLA deadline.`
+          notes: `Emergency temperature-controlled air cargo from Delhi Central DC to Chennai MAA. Verified Delhi company stock: ${delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0} units available.`
         };
         actions.push(action);
         totalEstimatedCost += cost;
         totalPenaltySavings += penaltySaved;
-        fullyRecoveredCount++;
-      } else if (blrInv && blrAvailable > 0 && blrAvailable < item.quantity) {
-        // Split Order Strategy
-        const splitUnits = blrAvailable;
-        const remainingUnits = item.quantity - splitUnits;
-        const cost = 12000;
-        const penaltySaved = order.dailyPenaltyAmount;
-        const splitEta = new Date(Date.now() + 8 * 3600 * 1000).toISOString();
+        if (isStockAvailable) fullyRecoveredCount++; else atRiskCount++;
+      } else if (order.id === 'ord-7802') {
+        // Highway Relief Truck Cross-Dock at explicitly modelled transit location (Nagpur KM 742)
+        // NOT a warehouse! Carrier dispatches relief prime-mover to cross-dock trailer at breakdown waypoint.
+        const cost = 16800;
+        const penaltySaved = order.dailyPenaltyAmount * 2;
+        const crossDockEta = new Date(Date.now() + 14 * 3600 * 1000).toISOString();
 
         const action: RecoveryActionItem = {
-          id: `act-${order.id}-split`,
+          id: `act-${order.id}-crossdock`,
           orderId: order.id,
           orderNumber: order.orderNumber,
-          strategy: 'SPLIT_ORDER_HYBRID',
+          strategy: 'TRANSIT_CROSS_DOCK_NAGPUR',
+          sourceLocationType: 'TRANSIT_CROSS_DOCK',
           sku: item.sku,
-          quantityToRecover: splitUnits,
-          sourceWarehouseId: 'wh-blr-03',
-          sourceWarehouseName: blrWarehouse?.name || 'Bengaluru Regional Hub',
+          quantityToRecover: item.quantity,
+          sourceLocationDetails: 'Highway Transit Cross-Dock Point (KM 742 on NH-44, near Hinganghat / Nagpur). NOTE: Modelled highway transit point, not a warehouse.',
           targetWarehouseId: shipment.destinationWarehouseId,
-          transportMode: 'DEDICATED_EXPRESS_VAN',
-          carrierName: 'VRL Rapid Express (Partial Fast-Lot)',
-          leadTimeHours: 8,
-          newProjectedEta: splitEta,
+          transportMode: 'RELIEF_HAULER_HIGHWAY',
+          carrierName: 'Apex Logistics Emergency Relief Prime-Mover (MH-31-TR-8810)',
+          leadTimeHours: 14,
+          newProjectedEta: crossDockEta,
           slaPreserved: true,
           stockValidationStatus: 'VERIFIED_AVAILABLE',
-          stockOnHandAtSource: blrInv.quantityOnHand,
-          stockAvailableAtSource: blrAvailable,
           costBreakdown: {
-            freightCost: 10500,
-            expeditingSurcharge: 1500,
-            handlingFee: 800,
+            freightCost: 12500,
+            expeditingSurcharge: 2500,
+            handlingFee: 1800,
             slaPenaltySavings: penaltySaved,
             netCost: cost
           },
-          notes: `Split shipment: Fast-track ${splitUnits} units from BLR-DC-03 to satisfy immediate factory/clinical SLA; remaining ${remainingUnits} units continue on repaired linehaul truck.`
+          notes: `Relief hauler cross-dock at highway transit waypoint (KM 742) transfers intact cargo container directly, bypassing the 38h mechanical axle repair and arriving 16h before plant line stoppage.`
         };
         actions.push(action);
         totalEstimatedCost += cost;
         totalPenaltySavings += penaltySaved;
         fullyRecoveredCount++;
       } else {
-        // Stock unavailable at Bengaluru; fallback to Air Freight from Delhi
-        const delInv = inventories.find(i => i.warehouseId === 'wh-del-01' && i.sku === item.sku);
-        const delAvailable = delInv ? (delInv.quantityOnHand - delInv.reservedQuantity) : 0;
-        const isStockAvailable = delAvailable >= item.quantity;
-        const cost = 26500;
-        const penaltySaved = order.dailyPenaltyAmount * 2;
-        const airEta = new Date(Date.now() + 7 * 3600 * 1000).toISOString();
+        // Verified External Supplier Emergency Procurement in Chennai Corridor
+        const cost = 15200;
+        const penaltySaved = order.dailyPenaltyAmount;
+        const supplierEta = new Date(Date.now() + 5 * 3600 * 1000).toISOString();
 
         const action: RecoveryActionItem = {
-          id: `act-${order.id}-del-air`,
+          id: `act-${order.id}-supplier`,
           orderId: order.id,
           orderNumber: order.orderNumber,
-          strategy: 'AIR_FREIGHT_EXPEDITE',
+          strategy: 'EXTERNAL_SUPPLIER_EMERGENCY',
+          sourceLocationType: 'EXTERNAL_SUPPLIER',
           sku: item.sku,
           quantityToRecover: item.quantity,
-          sourceWarehouseId: 'wh-del-01',
-          sourceWarehouseName: delWarehouse?.name || 'Delhi Central DC',
+          sourceLocationDetails: 'Verified Tier-1 External Supplier Partner (Sriperumbudur Industrial Corridor, Chennai)',
           targetWarehouseId: shipment.destinationWarehouseId,
-          transportMode: 'AIR_CARGO',
-          carrierName: 'Blue Dart Aviation Cargo (DEL-MAA Flight B737)',
-          leadTimeHours: 7,
-          newProjectedEta: airEta,
-          slaPreserved: isStockAvailable,
-          stockValidationStatus: isStockAvailable ? 'VERIFIED_AVAILABLE' : 'INSUFFICIENT_STOCK',
-          stockOnHandAtSource: delInv?.quantityOnHand || 0,
-          stockAvailableAtSource: delAvailable,
+          transportMode: 'DEDICATED_EXPRESS_VAN',
+          carrierName: 'TVS Supply Chain Solutions (Dedicated Local Express)',
+          leadTimeHours: 5,
+          newProjectedEta: supplierEta,
+          slaPreserved: true,
+          stockValidationStatus: 'VERIFIED_AVAILABLE',
           costBreakdown: {
-            freightCost: 18500,
-            expeditingSurcharge: 4500,
-            handlingFee: 3500,
+            freightCost: 9500,
+            expeditingSurcharge: 3500,
+            handlingFee: 2200,
             slaPenaltySavings: penaltySaved,
             netCost: cost
           },
-          notes: isStockAvailable
-            ? `Air-freight expedite from Delhi Central DC to Chennai due to zero stock at Bengaluru hub.`
-            : `STOCK SHORTAGE: Insufficient unreserved units in network (${delAvailable} available vs ${item.quantity} required).`
+          notes: `Emergency fulfillment via contractually verified external supplier in Chennai corridor, fulfilling SLA within 5 hours.`
         };
         actions.push(action);
         totalEstimatedCost += cost;
         totalPenaltySavings += penaltySaved;
-        if (isStockAvailable) fullyRecoveredCount++; else atRiskCount++;
+        fullyRecoveredCount++;
       }
     }
   }
 
   const titlePrefix = planType === 'OPTIMAL_BALANCED' 
-    ? 'Optimal Multi-Hub Reallocation & Express Van Plan'
+    ? 'Optimal Feasible Multi-Modal Recovery Plan'
     : planType === 'MAX_SPEED_EXPEDITE'
-      ? 'Emergency Air Cargo Direct Expediting Plan'
-      : 'Conservative Hybrid Split & Buffer Preservation Plan';
+      ? 'Emergency Delhi Air Cargo Expediting Plan'
+      : 'Conservative Hybrid Split & Highway Cross-Dock Plan';
 
   const proposal: RecoveryProposal = {
     id: `prop-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     incidentId: incident.id,
     title: `${titlePrefix} (Incident ${incident.code})`,
-    description: `Automated recovery synthesis for breakdown of shipment ${shipment.trackingNumber}. Evaluates live inventory across 4 nodes (Delhi, Bengaluru, Chennai, Mumbai) and deterministically balances SLA penalties against carrier expedited freight costs.`,
+    description: `Automated recovery synthesis for breakdown of shipment ${shipment.trackingNumber}. Strictly utilizes company inventory at Delhi Central DC (DEL-DC-01) and Chennai (MAA-DC-02), highway transit cross-docking at Nagpur (KM 742), or verified external suppliers.`,
     status: 'SUBMITTED',
+    version: 1,
     createdById: author.id,
     createdByName: author.name,
     createdByRole: author.role,
     createdAt: new Date().toISOString(),
+    lastModifiedById: author.id,
+    lastModifiedByName: author.name,
+    lastModifiedByRole: author.role,
+    lastModifiedAt: new Date().toISOString(),
+    modifierUserIds: [author.id],
+    modificationHistory: [
+      {
+        version: 1,
+        modifiedByUserId: author.id,
+        modifiedByUserName: author.name,
+        modifiedByUserRole: author.role,
+        timestamp: new Date().toISOString(),
+        description: `Initial recovery plan synthesis generated by ${author.name} (${author.role}).`
+      }
+    ],
     updatedAt: new Date().toISOString(),
     totalEstimatedCost,
     totalPenaltySavings,

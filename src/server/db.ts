@@ -27,6 +27,15 @@ const DB_FILE = path.join(DATA_DIR, 'disruptioniq_data.json');
 
 export const INITIAL_USERS: User[] = [
   {
+    id: 'user-admin-01',
+    name: 'Devika Roy',
+    email: 'devika.roy@disruptioniq.internal',
+    role: 'ADMINISTRATOR',
+    title: 'Enterprise Supply Chain System Administrator',
+    department: 'IT & Supply Chain Governance',
+    avatarUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=120&auto=format&fit=crop&q=80'
+  },
+  {
     id: 'user-scm-01',
     name: 'Praveen Sharma',
     email: 'praveen.sharma@disruptioniq.internal',
@@ -73,6 +82,7 @@ export const INITIAL_USERS: User[] = [
   }
 ];
 
+// EXACTLY TWO COMPANY WAREHOUSES: DELHI AND CHENNAI
 export const INITIAL_WAREHOUSES: Warehouse[] = [
   {
     id: 'wh-del-01',
@@ -95,31 +105,10 @@ export const INITIAL_WAREHOUSES: Warehouse[] = [
     coordinates: { lat: 13.0827, lng: 80.2707 },
     operatingHours: '24/7 Operations',
     handlingFeePerUnit: 55
-  },
-  {
-    id: 'wh-blr-03',
-    code: 'BLR-DC-03',
-    name: 'Bengaluru Regional Logistics Hub',
-    city: 'Bengaluru',
-    state: 'Karnataka',
-    type: 'REGIONAL_HUB',
-    coordinates: { lat: 12.9716, lng: 77.5946 },
-    operatingHours: '06:00 - 23:00 IST',
-    handlingFeePerUnit: 40
-  },
-  {
-    id: 'wh-bom-04',
-    code: 'BOM-DC-04',
-    name: 'Mumbai Western Distribution Node',
-    city: 'Mumbai',
-    state: 'Maharashtra',
-    type: 'REGIONAL_HUB',
-    coordinates: { lat: 19.0760, lng: 72.8777 },
-    operatingHours: '24/7 Operations',
-    handlingFeePerUnit: 50
   }
 ];
 
+// INVENTORIES STRICTLY TIED TO DELHI AND CHENNAI ONLY
 export const INITIAL_INVENTORIES: InventoryItem[] = [
   // SKU-MED-901: Cold-Chain Diagnostic Reagents
   {
@@ -129,21 +118,8 @@ export const INITIAL_INVENTORIES: InventoryItem[] = [
     productName: 'Cold-Chain Diagnostic Reagents (Bio-Analyzer Kits)',
     category: 'Cold-Chain Pharma',
     quantityOnHand: 240,
-    reservedQuantity: 30, // 30 on the truck
+    reservedQuantity: 30, // 30 on shipment SHP-DEL-MAA-9042
     availableQuantity: 210,
-    unitCost: 15000,
-    weightKg: 4.2,
-    storageCondition: '2-8°C Cold Chain'
-  },
-  {
-    id: 'inv-blr-med',
-    warehouseId: 'wh-blr-03',
-    sku: 'SKU-MED-901',
-    productName: 'Cold-Chain Diagnostic Reagents (Bio-Analyzer Kits)',
-    category: 'Cold-Chain Pharma',
-    quantityOnHand: 45,
-    reservedQuantity: 0,
-    availableQuantity: 45, // Available for rapid reallocation to Chennai!
     unitCost: 15000,
     weightKg: 4.2,
     storageCondition: '2-8°C Cold Chain'
@@ -161,19 +137,6 @@ export const INITIAL_INVENTORIES: InventoryItem[] = [
     weightKg: 4.2,
     storageCondition: '2-8°C Cold Chain'
   },
-  {
-    id: 'inv-bom-med',
-    warehouseId: 'wh-bom-04',
-    sku: 'SKU-MED-901',
-    productName: 'Cold-Chain Diagnostic Reagents (Bio-Analyzer Kits)',
-    category: 'Cold-Chain Pharma',
-    quantityOnHand: 80,
-    reservedQuantity: 10,
-    availableQuantity: 70,
-    unitCost: 15000,
-    weightKg: 4.2,
-    storageCondition: '2-8°C Cold Chain'
-  },
 
   // SKU-AUTO-404: Electronic Control Modules ECM-9
   {
@@ -185,19 +148,6 @@ export const INITIAL_INVENTORIES: InventoryItem[] = [
     quantityOnHand: 180,
     reservedQuantity: 25,
     availableQuantity: 155,
-    unitCost: 35000,
-    weightKg: 1.8,
-    storageCondition: 'Controlled Climate'
-  },
-  {
-    id: 'inv-blr-auto',
-    warehouseId: 'wh-blr-03',
-    sku: 'SKU-AUTO-404',
-    productName: 'Tier-1 Automotive ECM-9 Engine Micro-Controllers',
-    category: 'Automotive Spares',
-    quantityOnHand: 35,
-    reservedQuantity: 0,
-    availableQuantity: 35, // Can cover order ORD-7802 (needs 25 units)!
     unitCost: 35000,
     weightKg: 1.8,
     storageCondition: 'Controlled Climate'
@@ -231,19 +181,6 @@ export const INITIAL_INVENTORIES: InventoryItem[] = [
     storageCondition: 'Ambient'
   },
   {
-    id: 'inv-blr-solar',
-    warehouseId: 'wh-blr-03',
-    sku: 'SKU-SOLAR-210',
-    productName: 'Industrial Inverter Power Distribution Boards',
-    category: 'Renewable Energy',
-    quantityOnHand: 25,
-    reservedQuantity: 0,
-    availableQuantity: 25,
-    unitCost: 22000,
-    weightKg: 8.5,
-    storageCondition: 'Ambient'
-  },
-  {
     id: 'inv-maa-solar',
     warehouseId: 'wh-maa-02',
     sku: 'SKU-SOLAR-210',
@@ -267,19 +204,6 @@ export const INITIAL_INVENTORIES: InventoryItem[] = [
     quantityOnHand: 400,
     reservedQuantity: 50,
     availableQuantity: 350,
-    unitCost: 13000,
-    weightKg: 3.1,
-    storageCondition: 'Ambient'
-  },
-  {
-    id: 'inv-blr-retl',
-    warehouseId: 'wh-blr-03',
-    sku: 'SKU-RETL-105',
-    productName: 'Commercial Smart POS & Interactive Display Consoles',
-    category: 'Consumer Electronics',
-    quantityOnHand: 110,
-    reservedQuantity: 0,
-    availableQuantity: 110,
     unitCost: 13000,
     weightKg: 3.1,
     storageCondition: 'Ambient'
@@ -345,7 +269,7 @@ export const INITIAL_SHIPMENTS: Shipment[] = [
       },
       {
         id: 'ms-04',
-        locationName: 'Nagpur / Hinganghat Corridor (KM 742 on NH-44)',
+        locationName: 'Nagpur / Hinganghat Highway Transit Waypoint (KM 742 on NH-44)',
         coordinates: { lat: 20.5600, lng: 78.8400 },
         status: 'CURRENT_INCIDENT',
         plannedTimestamp: '2026-10-30T04:30:00.000Z',
@@ -353,7 +277,7 @@ export const INITIAL_SHIPMENTS: Shipment[] = [
       },
       {
         id: 'ms-05',
-        locationName: 'Hyderabad Outer Ring Road Freight Junction',
+        locationName: 'Hyderabad Freight Transit Node',
         coordinates: { lat: 17.3850, lng: 78.4867 },
         status: 'PENDING',
         plannedTimestamp: '2026-10-30T20:00:00.000Z'
@@ -389,7 +313,7 @@ export const INITIAL_ORDERS: Order[] = [
       }
     ],
     totalValue: 450000,
-    committedSla: '2026-10-31T20:00:00.000Z', // 2 hours after original ETA
+    committedSla: '2026-10-31T20:00:00.000Z',
     estimatedDelivery: '2026-10-31T18:00:00.000Z',
     status: 'ON_SCHEDULE',
     dailyPenaltyAmount: 35000,
@@ -414,7 +338,7 @@ export const INITIAL_ORDERS: Order[] = [
       }
     ],
     totalValue: 875000,
-    committedSla: '2026-11-01T08:00:00.000Z', // 14 hours after original ETA
+    committedSla: '2026-11-01T08:00:00.000Z',
     estimatedDelivery: '2026-10-31T18:00:00.000Z',
     status: 'ON_SCHEDULE',
     dailyPenaltyAmount: 120000,
@@ -439,7 +363,7 @@ export const INITIAL_ORDERS: Order[] = [
       }
     ],
     totalValue: 650000,
-    committedSla: '2026-11-03T12:00:00.000Z', // 66 hours after original ETA (ample buffer)
+    committedSla: '2026-11-03T12:00:00.000Z',
     estimatedDelivery: '2026-10-31T18:00:00.000Z',
     status: 'ON_SCHEDULE',
     dailyPenaltyAmount: 8000,
@@ -464,7 +388,7 @@ export const INITIAL_ORDERS: Order[] = [
       }
     ],
     totalValue: 330000,
-    committedSla: '2026-11-01T16:00:00.000Z', // 22 hours buffer
+    committedSla: '2026-11-01T16:00:00.000Z',
     estimatedDelivery: '2026-10-31T18:00:00.000Z',
     status: 'ON_SCHEDULE',
     dailyPenaltyAmount: 25000,
@@ -496,7 +420,15 @@ export class Database {
       if (fs.existsSync(DB_FILE)) {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (parsed.users && parsed.warehouses && parsed.shipments) {
+        // Verify schema conforms to exactly 2 company warehouses
+        if (
+          parsed.users && 
+          parsed.warehouses && 
+          parsed.shipments &&
+          Array.isArray(parsed.warehouses) &&
+          parsed.warehouses.length === 2 &&
+          parsed.warehouses.every((w: Warehouse) => w.code === 'DEL-DC-01' || w.code === 'MAA-DC-02')
+        ) {
           return parsed;
         }
       }
@@ -520,15 +452,15 @@ export class Database {
           actor: {
             id: 'system',
             name: 'DisruptionIQ Platform Kernel',
-            role: 'SUPPLY_CHAIN_MANAGER',
+            role: 'ADMINISTRATOR',
             department: 'System Architecture'
           },
           entityType: 'SYSTEM',
           entityId: 'system-seed',
-          summary: 'Initialized baseline supply chain state: 4 Hubs, 4 SKUs, 1 active Delhi-Chennai shipment (SHP-DEL-MAA-9042), 4 customer orders.',
+          summary: 'Initialized baseline supply chain state: Exactly 2 Hubs (Delhi DEL-DC-01, Chennai MAA-DC-02), 4 SKUs, 1 active Delhi-Chennai shipment (SHP-DEL-MAA-9042), 4 customer orders.',
           isSimulated: false,
           metadata: {
-            warehousesCount: 4,
+            warehousesCount: 2,
             ordersCount: 4,
             baselineShipment: 'SHP-DEL-MAA-9042'
           }
@@ -539,19 +471,59 @@ export class Database {
     return defaultData;
   }
 
+  /**
+   * Persists database state to disk using atomic temporary file write and rename.
+   * Throws an error on failure so persistence issues are NEVER swallowed silently.
+   */
   public persist(data?: DatabaseSchema): void {
     if (data) this.data = data;
+    const tempFile = `${DB_FILE}.tmp.${Date.now()}`;
     try {
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
-    } catch (err) {
-      console.error('[DB] Failed to persist data to disk:', err);
+      // Atomic write: write to temp file then rename
+      fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.renameSync(tempFile, DB_FILE);
+    } catch (err: any) {
+      if (fs.existsSync(tempFile)) {
+        try { fs.unlinkSync(tempFile); } catch {}
+      }
+      console.error('[DB] Persistence failure:', err);
+      throw new Error(`DATABASE_PERSISTENCE_ERROR: Failed to save changes to persistent disk storage: ${err.message}`);
     }
   }
 
-  public resetToDefault(): DatabaseSchema {
+  /**
+   * Resets database state to default baseline.
+   * Strictly requires an actor with the ADMINISTRATOR role.
+   */
+  public resetToDefault(actor: User): DatabaseSchema {
+    if (actor.role !== 'ADMINISTRATOR') {
+      throw new Error(`UNAUTHORIZED_RESET: Only users with the 'ADMINISTRATOR' role can reset the demo state. Current actor '${actor.name}' has role '${actor.role}'.`);
+    }
+
+    const resetAuditEntry: AuditLogEntry = {
+      id: `audit-reset-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      eventType: 'SYSTEM_DATABASE_RESET',
+      actor: {
+        id: actor.id,
+        name: actor.name,
+        role: actor.role,
+        department: actor.department
+      },
+      entityType: 'SYSTEM',
+      entityId: 'system-reset',
+      summary: `System state reset to clean 2-warehouse demo baseline by Administrator ${actor.name}.`,
+      isSimulated: false,
+      metadata: {
+        resetBy: actor.name,
+        role: actor.role,
+        timestamp: new Date().toISOString()
+      }
+    };
+
     this.data = {
       users: JSON.parse(JSON.stringify(INITIAL_USERS)),
       warehouses: JSON.parse(JSON.stringify(INITIAL_WAREHOUSES)),
@@ -560,24 +532,7 @@ export class Database {
       orders: JSON.parse(JSON.stringify(INITIAL_ORDERS)),
       incidents: [],
       proposals: [],
-      auditLogs: [
-        {
-          id: `audit-reset-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          eventType: 'SYSTEM_DATABASE_RESET',
-          actor: {
-            id: 'system',
-            name: 'DisruptionIQ Control Tower',
-            role: 'SUPPLY_CHAIN_MANAGER',
-            department: 'System'
-          },
-          entityType: 'SYSTEM',
-          entityId: 'system-reset',
-          summary: 'System reset to clean demo baseline state with no active incidents.',
-          isSimulated: true,
-          metadata: { timestamp: new Date().toISOString() }
-        }
-      ]
+      auditLogs: [resetAuditEntry]
     };
     this.persist();
     return this.data;
@@ -696,6 +651,7 @@ export class Database {
     }
   }
 
+  // AUDIT TRAIL: IMMUTABLE APPEND-ONLY (No edit or delete methods exist)
   public getAuditLogs(): AuditLogEntry[] {
     return this.data.auditLogs;
   }

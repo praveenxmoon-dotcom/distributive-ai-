@@ -1,6 +1,6 @@
 import React from 'react';
 import { Shipment, DisruptionIncident, Warehouse } from '../types/index.ts';
-import { AlertTriangle, CheckCircle2, Clock, Truck, Plane, Navigation, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Truck, Plane, Navigation, ShieldCheck, RefreshCw, ExternalLink } from 'lucide-react';
 
 interface CorridorMapProps {
   shipment: Shipment | undefined;
@@ -23,10 +23,13 @@ export const CorridorMap: React.FC<CorridorMapProps> = ({
         <div className="flex items-center gap-2">
           <Navigation className="w-5 h-5 text-indigo-400" />
           <h3 className="font-semibold text-slate-100 text-base">
-            Delhi - Chennai Freight Corridor (NH-44 Spine)
+            Delhi - Chennai Freight Corridor (NH-44 Central-South Spine)
           </h3>
           <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">
             2,180 KM Linehaul
+          </span>
+          <span className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">
+            2 Company Warehouses Network
           </span>
         </div>
 
@@ -34,7 +37,7 @@ export const CorridorMap: React.FC<CorridorMapProps> = ({
           {shipment?.status === 'DELAYED_BREAKDOWN' && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse">
               <AlertTriangle className="w-3.5 h-3.5" />
-              Breakdown at KM 742 (Nagpur) (+{shipment.delayHours}h Delay)
+              Breakdown at Nagpur Waypoint (+{shipment.delayHours}h Delay)
             </span>
           )}
           {shipment?.status === 'IN_TRANSIT' && !incident && (
@@ -54,10 +57,8 @@ export const CorridorMap: React.FC<CorridorMapProps> = ({
 
       {/* Visual Corridor Diagram */}
       <div className="relative py-4 px-2">
-        {/* Progress Line */}
         <div className="absolute top-1/2 left-8 right-8 h-1 bg-slate-800 -translate-y-1/2 rounded-full" />
         
-        {/* Traveled portion */}
         <div 
           className={`absolute top-1/2 left-8 h-1 -translate-y-1/2 rounded-full transition-all duration-700 ${
             isBreakdown ? 'bg-rose-500' : 'bg-indigo-500'
@@ -66,34 +67,34 @@ export const CorridorMap: React.FC<CorridorMapProps> = ({
         />
 
         <div className="relative grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2 text-center">
-          {/* Milestone 1: Delhi Origin */}
+          {/* Milestone 1: Delhi Origin (Company Warehouse 1) */}
           <div className="flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-slate-800 border-2 border-indigo-400 flex items-center justify-center text-indigo-300 shadow-md">
+            <div className="w-10 h-10 rounded-full bg-indigo-950 border-2 border-indigo-400 flex items-center justify-center text-indigo-300 shadow-md">
               <span className="text-xs font-bold">DEL</span>
             </div>
-            <div className="mt-2 text-xs font-medium text-slate-200">Delhi Central DC</div>
-            <div className="text-[10px] text-slate-400">Origin (KM 0)</div>
+            <div className="mt-2 text-xs font-bold text-indigo-300">Delhi Central DC</div>
+            <div className="text-[10px] text-slate-400">Company Warehouse (KM 0)</div>
           </div>
 
-          {/* Milestone 2: Agra */}
+          {/* Milestone 2: Agra Toll Waypoint */}
           <div className="flex flex-col items-center">
             <div className="w-8 h-8 mt-1 rounded-full bg-slate-800 border-2 border-emerald-500 flex items-center justify-center text-emerald-400">
               <CheckCircle2 className="w-4 h-4" />
             </div>
-            <div className="mt-2 text-xs font-medium text-slate-300">Agra Toll</div>
+            <div className="mt-2 text-xs font-medium text-slate-300">Agra Toll Waypoint</div>
             <div className="text-[10px] text-slate-400">KM 230 - Passed</div>
           </div>
 
-          {/* Milestone 3: Gwalior */}
+          {/* Milestone 3: Gwalior Waypoint */}
           <div className="flex flex-col items-center">
             <div className="w-8 h-8 mt-1 rounded-full bg-slate-800 border-2 border-emerald-500 flex items-center justify-center text-emerald-400">
               <CheckCircle2 className="w-4 h-4" />
             </div>
-            <div className="mt-2 text-xs font-medium text-slate-300">Gwalior Bypass</div>
+            <div className="mt-2 text-xs font-medium text-slate-300">Gwalior Waypoint</div>
             <div className="text-[10px] text-slate-400">KM 350 - Passed</div>
           </div>
 
-          {/* Milestone 4: Incident Location (Nagpur / Hinganghat) */}
+          {/* Milestone 4: Incident Location (Nagpur Transit Waypoint - NOT A WAREHOUSE) */}
           <div className="flex flex-col items-center">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-transform ${
               isBreakdown 
@@ -103,65 +104,85 @@ export const CorridorMap: React.FC<CorridorMapProps> = ({
               {isBreakdown ? <AlertTriangle className="w-5 h-5 animate-bounce" /> : <Clock className="w-4 h-4" />}
             </div>
             <div className={`mt-2 text-xs font-semibold ${isBreakdown ? 'text-rose-400' : 'text-slate-300'}`}>
-              Nagpur / Hinganghat
+              Nagpur Waypoint
             </div>
-            <div className="text-[10px] text-slate-400">
-              {isBreakdown ? 'BREAKDOWN (KM 742)' : 'KM 742 In-Transit'}
+            <div className="text-[10px] text-amber-300/80 font-mono">
+              Transit Waypoint (KM 742)
+            </div>
+            <div className="text-[9px] text-slate-500 italic">
+              Highway cross-dock point
             </div>
           </div>
 
-          {/* Milestone 5: Hyderabad */}
+          {/* Milestone 5: Hyderabad Transit Node */}
           <div className="flex flex-col items-center">
             <div className="w-8 h-8 mt-1 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center text-slate-500">
               <span className="text-[10px] font-mono">HYD</span>
             </div>
-            <div className="mt-2 text-xs font-medium text-slate-400">Hyderabad Hub</div>
+            <div className="mt-2 text-xs font-medium text-slate-400">Hyderabad Waypoint</div>
             <div className="text-[10px] text-slate-500">KM 1,510 - Downstream</div>
           </div>
 
-          {/* Milestone 6: Chennai Destination */}
+          {/* Milestone 6: Chennai Destination (Company Warehouse 2) */}
           <div className="flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-slate-800 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-md">
+            <div className="w-10 h-10 rounded-full bg-emerald-950 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-md">
               <span className="text-xs font-bold">MAA</span>
             </div>
-            <div className="mt-2 text-xs font-medium text-slate-200">Chennai Fulfillment</div>
-            <div className="text-[10px] text-slate-400">Destination (KM 2,180)</div>
+            <div className="mt-2 text-xs font-bold text-emerald-300">Chennai Fulfillment</div>
+            <div className="text-[10px] text-slate-400">Company Warehouse (KM 2,180)</div>
           </div>
         </div>
       </div>
 
-      {/* Alternative Reallocation Vectors (Bengaluru -> Chennai) */}
-      <div className="mt-4 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-        <div className="bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/60 flex items-start gap-3">
-          <div className="p-2 rounded bg-indigo-500/20 text-indigo-300">
-            <Truck className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <span>Bengaluru Hub (BLR-DC-03) Rapid Link</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono">
-                340 KM (7h Transit)
-              </span>
-            </div>
-            <p className="text-slate-400 text-[11px] mt-0.5">
-              Alternative stock warehouse for immediate road expediting to Chennai. Verified stock available for healthcare & automotive SKUs.
-            </p>
-          </div>
-        </div>
-
-        <div className="bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/60 flex items-start gap-3">
+      {/* Modeled Feasible Recovery Vectors (Without invent-a-warehouse) */}
+      <div className="mt-4 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+        <div className="bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/60 flex items-start gap-2.5">
           <div className="p-2 rounded bg-sky-500/20 text-sky-300">
             <Plane className="w-4 h-4" />
           </div>
           <div>
             <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-              <span>Air Cargo Corridor (DEL Airport to MAA Airport)</span>
+              <span>Delhi Air Cargo Expedite</span>
               <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-mono">
-                5.5h Lead Time
+                6.5h Direct Flight
               </span>
             </div>
             <p className="text-slate-400 text-[11px] mt-0.5">
-              Emergency flight cargo option from Delhi IGI Airport for critical payloads if regional hubs are stock-depleted.
+              Direct air freight from Delhi Central DC (`wh-del-01`) via IGI Airport (DEL) to Chennai Airport (MAA). Uses verified company stock.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/60 flex items-start gap-2.5">
+          <div className="p-2 rounded bg-amber-500/20 text-amber-300">
+            <RefreshCw className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+              <span>Highway Transit Cross-Dock</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">
+                Nagpur Transit Depot
+              </span>
+            </div>
+            <p className="text-slate-400 text-[11px] mt-0.5">
+              Relief prime-mover dispatches directly to breakdown point (KM 742), cross-docking container to resume transit without awaiting 38h axle overhaul.
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-slate-800/60 rounded-lg p-2.5 border border-slate-700/60 flex items-start gap-2.5">
+          <div className="p-2 rounded bg-purple-500/20 text-purple-300">
+            <ExternalLink className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="font-semibold text-slate-200 flex items-center gap-1.5">
+              <span>Verified External Supplier</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-mono">
+                Chennai Corridor Partner
+              </span>
+            </div>
+            <p className="text-slate-400 text-[11px] mt-0.5">
+              Contractually vetted Tier-1 partner in Chennai/Sriperumbudur corridor dispatched via local courier for zero inter-hub transit latency.
             </p>
           </div>
         </div>

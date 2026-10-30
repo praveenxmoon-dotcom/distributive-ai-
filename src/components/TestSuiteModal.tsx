@@ -5,9 +5,10 @@ import { Play, CheckCircle2, XCircle, Clock, ShieldCheck, X, RefreshCw } from 'l
 interface TestSuiteModalProps {
   isOpen: boolean;
   onClose: () => void;
+  sessionToken?: string;
 }
 
-export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose }) => {
+export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose, sessionToken }) => {
   if (!isOpen) return null;
 
   const [loading, setLoading] = useState(false);
@@ -16,7 +17,11 @@ export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose 
   const runTests = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/test-suite/run', { method: 'POST' });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (sessionToken) {
+        headers['Authorization'] = `Bearer ${sessionToken}`;
+      }
+      const res = await fetch('/api/test-suite/run', { method: 'POST', headers });
       const data = await res.json();
       setSuiteResult(data);
     } catch (err) {
@@ -35,7 +40,7 @@ export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose 
             <ShieldCheck className="w-5 h-5 text-indigo-400" />
             <div>
               <h3 className="font-bold text-white text-base">Automated DisruptionIQ Compliance & Verification Suite</h3>
-              <p className="text-xs text-slate-400">Verifies business rules, maker-checker policy, stock validation, and execution safety</p>
+              <p className="text-xs text-slate-400">Verifies authentication, role bypass, 2-warehouse limits, maker-checker governance, and execution safety</p>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
@@ -52,7 +57,7 @@ export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose 
               className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors shadow-md"
             >
               {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-              {loading ? 'Executing Test Suite...' : 'Run All 8 Verification Tests'}
+              {loading ? 'Executing Test Suite...' : 'Run All 10 Compliance & Verification Tests'}
             </button>
 
             {suiteResult && (
@@ -83,7 +88,7 @@ export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose 
               <ShieldCheck className="w-10 h-10 text-indigo-400 mx-auto opacity-70" />
               <p className="font-semibold text-slate-200">Test suite ready to run.</p>
               <p className="text-xs text-slate-500 max-w-md mx-auto">
-                Click "Run All 8 Verification Tests" to execute server-side assertions covering approval enforcement, maker-checker separation of duties, stock queries, and execution blocks.
+                Click "Run All 10 Compliance & Verification Tests" to execute server-side assertions covering authentication, two-warehouse constraints, maker-checker separation of duties, stock queries, and execution blocks.
               </p>
             </div>
           )}
@@ -116,7 +121,7 @@ export const TestSuiteModal: React.FC<TestSuiteModalProps> = ({ isOpen, onClose 
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-slate-200">
-                        [{index + 1}/8] {test.name}
+                        [{index + 1}/{suiteResult.total}] {test.name}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
                         {test.category}

@@ -24,12 +24,13 @@ export const ApprovalModal: React.FC<ApprovalModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const isProposer = proposal.createdById === currentUser.id;
+  const isModifier = proposal.lastModifiedById === currentUser.id || (proposal.modifierUserIds && proposal.modifierUserIds.includes(currentUser.id));
   const isManager = currentUser.role === 'SUPPLY_CHAIN_MANAGER';
 
   // Rule 1: Role check
   const roleCheckPassed = isManager;
-  // Rule 2: Maker-Checker separation of duties check
-  const makerCheckerPassed = !isProposer;
+  // Rule 2: Maker-Checker separation of duties check (neither proposer nor modifier can approve)
+  const makerCheckerPassed = !isProposer && !isModifier;
 
   const handleDecision = async (decision: 'APPROVED' | 'REJECTED') => {
     setErrorMessage(null);
